@@ -4,7 +4,7 @@
 1. Criar nova pasta
 2. Acessar o servidor via ssh
       ```
-     ssh usuario@IP
+      ssh usuario@IP
       ```
 4. Compartilhar via Samba (SMB) (para Windows e Linux)
   * Instale no servidor:
@@ -23,5 +23,7 @@
       guest ok = yes"
       ```
   * Depois:
-      ```sudo systemctl restart smbd```
+      ```
+      sudo systemctl restart smbd
+      ```
    
