@@ -31,7 +31,7 @@ sudo nano /etc/samba/smb.conf
       ```
       ip a
       ```
-*deve conter isto:
+* deve conter isto:
       ```
       inet IP_servidor/24
       ```
@@ -41,8 +41,8 @@ sudo nano /etc/samba/smb.conf
       testparm -s
       ```
 * Esse comando mostra os compartilhamentos disponíveis. Procure por algo como:
-      -[nome_da_pasta]
-        path = /home/bombeiros/COBOM_server/site/gestao_dejem/auto_dejem
+      [nome_da_pasta]
+      path = /home/bombeiros/COBOM_server/site/gestao_dejem/auto_dejem
         
 - Se não aparecer, é porque o compartilhamento não está configurado corretamente no /etc/samba/smb.conf.
 
@@ -51,13 +51,13 @@ sudo nano /etc/samba/smb.conf
       ```
       smbclient -L //10.44.133.44 -N
       ```
-** Saída esperada:
+- Saída esperada:
       Sharename       Type      Comment
       ---------       ----      -------
       auto_dejem      Disk
       ...
 
--Se auto_dejem não aparecer, algo está errado com a configuração do Samba.
+- Se auto_dejem não aparecer, algo está errado com a configuração do Samba.
 
 
 # ACESSANDO EM OUTRAS MÁQUINAS
