@@ -41,9 +41,10 @@ directory mask = 0775
       testparm -s
       ```
 * Esse comando mostra os compartilhamentos disponíveis. Procure por algo como:
-      [nome_da_pasta]
-      path = /home/bombeiros/COBOM_server/site/gestao_dejem/auto_dejem
-        
+´´´
+[nome_da_pasta]
+path = /home/user/caminho_da_pasta
+´´´
 - Se não aparecer, é porque o compartilhamento não está configurado corretamente no /etc/samba/smb.conf.
 
 2. Verifique se a pasta está visível na rede:
