@@ -9,15 +9,15 @@ sudo apt install samba -y
 sudo nano /etc/samba/smb.conf
 ```
 * Adicione no final:
-      ```
-      [nome_da_pasta]
-      path = /home/seu_usuario/automacao_dejem
-      browseable = yes
-      writable = yes
-      guest ok = yes
-      create mask = 0775
-      directory mask = 0775
-      ```
+```
+[nome_da_pasta]
+path = /home/seu_usuario/automacao_dejem
+browseable = yes
+writable = yes
+guest ok = yes
+create mask = 0775
+directory mask = 0775
+```
 3. Permissões
       ```
       sudo chmod -R 775 /home/seu_usuario/nome_da_pasta
