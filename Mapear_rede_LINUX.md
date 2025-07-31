@@ -6,14 +6,14 @@
   ssh usuario@IP
 3. Compartilhar via Samba (SMB) (para Windows e Linux)
   * Instale no servidor:
-    sudo apt install samba
+    - sudo apt install samba
   * Edite o smb.conf:
-    sudo nano /etc/samba/smb.conf
+    - sudo nano /etc/samba/smb.conf
   * Adicione ao final:
-    [nome_da_pasta]
-       path = /home/user/nome_da_pasta
-       read only = no
-       guest ok = yes
+    - [nome_da_pasta]
+    - path = /home/user/nome_da_pasta
+    - read only = no
+    - guest ok = yes
   * Depois:
-    sudo systemctl restart smbd
+    - sudo systemctl restart smbd
    
