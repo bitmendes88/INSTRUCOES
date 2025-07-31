@@ -34,7 +34,6 @@ sudo nano /etc/samba/smb.conf
 *deve conter isto:
       ```
       inet IP_servidor/24
-      
       ```
 # VERIFICAÇÕES
 1. Verifique se o compartilhamento realmente existe: No servidor, rode:
@@ -42,23 +41,23 @@ sudo nano /etc/samba/smb.conf
       testparm -s
       ```
 * Esse comando mostra os compartilhamentos disponíveis. Procure por algo como:
-[nome_da_pasta]
+      -[nome_da_pasta]
         path = /home/bombeiros/COBOM_server/site/gestao_dejem/auto_dejem
         
-** Se não aparecer, é porque o compartilhamento não está configurado corretamente no /etc/samba/smb.conf.
+- Se não aparecer, é porque o compartilhamento não está configurado corretamente no /etc/samba/smb.conf.
 
 2. Verifique se a pasta está visível na rede:
 * Na máquina cliente, tente listar os compartilhamentos disponíveis:
-```
-smbclient -L //10.44.133.44 -N
-```
+      ```
+      smbclient -L //10.44.133.44 -N
+      ```
 ** Saída esperada:
-Sharename       Type      Comment
----------       ----      -------
-auto_dejem      Disk
-...
+      Sharename       Type      Comment
+      ---------       ----      -------
+      auto_dejem      Disk
+      ...
 
-** Se auto_dejem não aparecer, algo está errado com a configuração do Samba.
+-Se auto_dejem não aparecer, algo está errado com a configuração do Samba.
 
 
 # ACESSANDO EM OUTRAS MÁQUINAS
