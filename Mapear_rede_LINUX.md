@@ -1,5 +1,5 @@
 # PASSOS
-## PARA O SERVIDOR
+## ETAPA 1 - CONFIGURAR O SERVIDOR
 
 1. Criar nova pasta
 2. Acessar o servidor via ssh
@@ -27,43 +27,16 @@
       sudo systemctl restart smbd
       ```
    
-🖥️ Etapa 2: Configurar clientes
-🪟 Em máquinas Windows:
-Mapear a pasta da rede:
+## ETAPA 2 - CONFIGURAR CLIENTES
+### EM MÁQUINAS WINDOWS
 
-No Explorador de Arquivos → Clique com o direito em “Este Computador” → “Mapear unidade de rede”
+* No Explorador de Arquivos, Clique com o direito em “Este Computador” → “Mapear unidade de rede”
 
-Ex: \\192.168.0.100\automacao → Montar como Z:\
+Ex: \\192.168.0.100\nome_da_pasta => Montar como Z:\
 
-Criar um script .bat:
+### EM MÁQUINAS LINUX
+* Monte a pasta via NFS ou SMB:
+```
+sudo mount -t cifs //192.168.0.100/nome_da_pasta /mnt/nome_da_pasta_criada -o guest
+```
 
-bat
-Copiar
-Editar
-@echo off
-cd /d Z:\ # pasta mapeada do servidor
-call C:\AUTOMACAO\venv\Scripts\activate.bat
-python main.py
-pause
-🐧 Em máquinas Linux:
-Monte a pasta via NFS ou SMB:
-
-bash
-Copiar
-Editar
-sudo mount -t cifs //192.168.0.100/automacao /mnt/automacao -o guest
-Depois, crie um script .sh:
-
-bash
-Copiar
-Editar
-#!/bin/bash
-cd /mnt/automacao
-source ~/automacao/venv/bin/activate
-python3 main.py
-Dê permissão de execução:
-
-bash
-Copiar
-Editar
-chmod +x rodar_automacao.sh
