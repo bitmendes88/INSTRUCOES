@@ -1,0 +1,264 @@
+Sistema Budibase com PostgreSQL (Supabase), Nginx e Docker Swarm
+
+Vou criar um sistema completo com Budibase conectado ao PostgreSQL do Supabase, servido via Nginx com SSL e domínio local, utilizando Docker Swarm para distribuição em duas máquinas.
+
+Estrutura do Projeto
+
+```
+budibase-supabase-system/
+├── docker-swarm.yml
+├── nginx/
+│   ├── nginx.conf
+│   ├── ssl/
+│   │   ├── cobom.app.crt
+│   │   └── cobom.app.key
+│   └── Dockerfile
+├── budibase/
+│   └── Dockerfile
+├── config/
+│   └── budibase.env
+└── scripts/
+    ├── init-swarm.sh
+    └── deploy.sh
+```
+
+1. Arquivo de Deploy do Docker Swarm
+
+docker-swarm.yml:
+
+```yaml
+version: '3.8'
+
+services:
+  budibase:
+    image: budibase/budibase:latest
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - REDIS_URL=${REDIS_URL}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - COUCH_DB_URL=${COUCH_DB_URL}
+      - COUCH_DB_USERNAME=${COUCH_DB_USERNAME}
+      - COUCH_DB_PASSWORD=${COUCH_DB_PASSWORD}
+      - POSTGRES_URL=${POSTGRES_URL}  # URL do Supabase
+      - API_ENCRYPTION_PASSWORD=${API_ENCRYPTION_PASSWORD}
+    volumes:
+      - budibase_data:/app/data
+    networks:
+      - budibase-network
+    deploy:
+      replicas: 2
+      placement:
+        constraints: [node.role == worker]
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - budibase
+    networks:
+      - budibase-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+networks:
+  budibase-network:
+    driver: overlay
+
+volumes:
+  budibase_data:
+    driver: local
+```
+
+2. Configuração do Nginx
+
+nginx/nginx.conf:
+
+```nginx
+server {
+    listen 80;
+    server_name cobom.app;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name cobom.app;
+
+    ssl_certificate /etc/nginx/ssl/cobom.app.crt;
+    ssl_certificate_key /etc/nginx/ssl/cobom.app.key;
+    
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    location / {
+        proxy_pass http://budibase:10000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}
+```
+
+3. Variáveis de Ambiente
+
+config/budibase.env:
+
+```env
+# Segurança
+JWT_SECRET=seu_jwt_super_secreto_aqui
+API_ENCRYPTION_PASSWORD=sua_senha_de_criptografia
+
+# Banco de dados - Supabase PostgreSQL
+POSTGRES_URL=postgresql://[usuario]:[senha]@[db.supabase.co]:5432/[nome_do_banco]
+
+# MinIO (armazenamento)
+MINIO_ACCESS_KEY=seu_minio_access_key
+MINIO_SECRET_KEY=seu_minio_secret_key
+
+# Redis
+REDIS_URL=redis://budibase-redis:6379
+REDIS_PASSWORD=senha_redis
+
+# CouchDB (para metadados do Budibase)
+COUCH_DB_URL=http://budibase-couchdb:5984
+COUCH_DB_USERNAME=admin
+COUCH_DB_PASSWORD=senha_couchdb
+```
+
+4. Script de Inicialização do Swarm
+
+scripts/init-swarm.sh:
+
+```bash
+#!/bin/bash
+
+# Inicializar o Docker Swarm
+echo "Inicializando Docker Swarm..."
+docker swarm init
+
+# Adicionar segunda máquina ao swarm (execute o comando gerado na segunda máquina)
+echo "Para adicionar workers, execute o seguinte comando na segunda máquina:"
+docker swarm join-token worker | grep "docker swarm join"
+
+# Criar network
+echo "Criando network..."
+docker network create -d overlay budibase-network
+
+# Criar volumes
+echo "Criando volumes..."
+docker volume create budibase_data
+
+echo "Swarm inicializado com sucesso!"
+```
+
+5. Script de Deploy
+
+scripts/deploy.sh:
+
+```bash
+#!/bin/bash
+
+# Carregar variáveis de ambiente
+set -a
+source ../config/budibase.env
+set +a
+
+# Implantar stack no Docker Swarm
+echo "Implantando stack Budibase..."
+docker stack deploy -c docker-swarm.yml budibase
+
+# Verificar status
+echo "Verificando status dos serviços..."
+docker service ls
+
+echo "Implantação concluída! Acesse https://cobom.app"
+```
+
+6. Dockerfile para o Budibase (personalizado se necessário)
+
+budibase/Dockerfile:
+
+```dockerfile
+FROM budibase/budibase:latest
+
+# Adicionar configurações personalizadas se necessário
+COPY custom-config /app/custom-config
+
+# Expor porta
+EXPOSE 10000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:10000/api/global/health || exit 1
+```
+
+7. Configuração do Hosts
+
+Adicione esta linha ao arquivo /etc/hosts em ambas as máquinas:
+
+```
+127.0.0.1   cobom.app
+# Ou o IP do seu manager node se for acessar de outra máquina
+```
+
+Instruções de Uso
+
+1. Preparar as máquinas:
+   ```bash
+   # Instalar Docker em ambas as máquinas
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo sh get-docker.sh
+   ```
+2. Configurar SSL:
+   · Coloque seus certificados SSL em nginx/ssl/ (cobom.app.crt e cobom.app.key)
+   · Ou gere certificados autoassinados para teste:
+     ```bash
+     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+       -keyout nginx/ssl/cobom.app.key \
+       -out nginx/ssl/cobom.app.crt \
+       -subj "/CN=cobom.app"
+     ```
+3. Configurar conexão com Supabase:
+   · Edite o arquivo config/budibase.env com as credenciais do seu banco Supabase
+4. Inicializar o Swarm:
+   ```bash
+   chmod +x scripts/init-swarm.sh
+   ./scripts/init-swarm.sh
+   ```
+5. Implantar a aplicação:
+   ```bash
+   chmod +x scripts/deploy.sh
+   ./scripts/deploy.sh
+   ```
+6. Verificar o status:
+   ```bash
+   docker service ls
+   docker service logs budibase_budibase
+   ```
+
+Gerenciamento do Swarm
+
+· Escalar serviços: docker service scale budibase_budibase=3
+· Ver logs: docker service logs budibase_budibase
+· Atualizar serviço: docker service update --image budibase/budibase:latest budibase_budibase
+· Remover stack: docker stack rm budibase
+
+Este sistema fornece uma instância do Budibase com alta disponibilidade, conectada ao Supabase PostgreSQL, servida via Nginx com SSL e distribuída entre duas máquinas usando Docker Swarm.
