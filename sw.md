@@ -1,48 +1,91 @@
-Você está absolutamente certo! Cometi um erro de interpretação. O Supabase é um serviço externo (SaaS), não precisa ser executado localmente. Vou corrigir a documentação e explicar corretamente a integração.
+Entendido! Vou criar um sistema completo com Supabase local em containers Docker Swarm. Aqui está a implementação:
 
-Correção: Integração com Supabase PostgreSQL
+Estrutura Atualizada do Projeto
 
-O Supabase é um serviço cloud que fornece PostgreSQL. Precisamos apenas configurar a conexão corretamente no Budibase.
-
-1. Configuração Correta das Variáveis de Ambiente
-
-config/budibase.env (atualizado):
-
-```env
-# Segurança
-JWT_SECRET=seu_jwt_super_secreto_aqui_32_caracteres_minimo
-API_ENCRYPTION_PASSWORD=sua_senha_de_criptografia_32_caracteres
-
-# Supabase PostgreSQL - CONEXÃO EXTERNA
-POSTGRES_URL=postgresql://postgres.suprabase:senha_supabase@aws-0-region.pooler.supabase.com:6543/postgres?ssl=allow
-
-# MinIO (armazenamento)
-MINIO_ACCESS_KEY=minio_access_key_aleatorio
-MINIO_SECRET_KEY=minio_secret_key_aleatorio_com_32_caracteres
-
-# Redis (interno)
-REDIS_URL=redis://budibase_redis:6379
-REDIS_PASSWORD=senha_redis_forte_32_caracteres
-
-# CouchDB (para metadados do Budibase - interno)
-COUCH_DB_URL=http://admin:senha_couchdb@budibase_couchdb:5984
-COUCH_DB_USERNAME=admin
-COUCH_DB_PASSWORD=senha_couchdb_forte_32_caracteres
-
-# Configurações adicionais do Budibase
-BB_ADMIN_EMAIL=admin@cobom.app
-BB_ADMIN_PASSWORD=senha_admin_forte
-BB_URL=https://cobom.app
+```
+budibase-supabase-local/
+├── docker-swarm.yml
+├── nginx/
+│   ├── nginx.conf
+│   ├── ssl/
+│   │   ├── cobom.app.crt
+│   │   └── cobom.app.key
+│   └── Dockerfile
+├── supabase/
+│   ├── config/
+│   │   ├── config.toml
+│   │   └── kong.yml
+│   ├── scripts/
+│   │   └── init-supabase.sql
+│   └── Dockerfile
+├── budibase/
+│   └── Dockerfile
+├── config/
+│   └── budibase.env
+└── scripts/
+    ├── init-swarm.sh
+    ├── deploy.sh
+    └── generate-passwords.sh
 ```
 
-2. Docker Swarm Atualizado com Serviços Internos
+1. Docker Swarm com Supabase Local
 
-docker-swarm.yml (atualizado):
+docker-swarm.yml:
 
 ```yaml
 version: '3.8'
 
 services:
+  # Supabase Services
+  supabase-db:
+    image: supabase/postgres:15.1.0.89
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${SUPABASE_DB_PASSWORD}
+    volumes:
+      - supabase_data:/var/lib/postgresql/data
+      - ./supabase/scripts/init-supabase.sql:/docker-entrypoint-initdb.d/init-supabase.sql
+    networks:
+      - budibase-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: on-failure
+
+  supabase-studio:
+    image: supabase/studio:20231219-5b9c4d3
+    environment:
+      - POSTGRES_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - STUDIO_PORT=3000
+    depends_on:
+      - supabase-db
+    networks:
+      - budibase-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == worker]
+
+  supabase-auth:
+    image: supabase/gotrue:v2.103.1
+    environment:
+      - GOTRUE_DB_DRIVER=postgres
+      - GOTRUE_DB_DATABASE_URL=postgresql://postgres:${SUPABASE_DB_PASSWORD}@supabase-db:5432/postgres
+      - GOTRUE_SITE_URL=https://cobom.app
+      - GOTRUE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+    depends_on:
+      - supabase-db
+    networks:
+      - budibase-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == worker]
+
+  # Budibase Services
   budibase:
     image: budibase/budibase:latest
     environment:
@@ -54,13 +97,13 @@ services:
       - COUCH_DB_URL=${COUCH_DB_URL}
       - COUCH_DB_USERNAME=${COUCH_DB_USERNAME}
       - COUCH_DB_PASSWORD=${COUCH_DB_PASSWORD}
-      - POSTGRES_URL=${POSTGRES_URL}
+      - POSTGRES_URL=postgresql://postgres:${SUPABASE_DB_PASSWORD}@supabase-db:5432/postgres
       - API_ENCRYPTION_PASSWORD=${API_ENCRYPTION_PASSWORD}
       - BB_ADMIN_EMAIL=${BB_ADMIN_EMAIL}
       - BB_ADMIN_PASSWORD=${BB_ADMIN_PASSWORD}
-      - BB_URL=${BB_URL}
-    volumes:
-      - budibase_data:/app/data
+      - BB_URL=https://cobom.app
+    depends_on:
+      - supabase-db
     networks:
       - budibase-network
     deploy:
@@ -69,8 +112,6 @@ services:
         constraints: [node.role == worker]
       restart_policy:
         condition: on-failure
-        delay: 5s
-        max_attempts: 3
 
   # Redis interno para caching
   budibase_redis:
@@ -108,11 +149,13 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "3000:3000"  # Supabase Studio
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
       - ./nginx/ssl:/etc/nginx/ssl
     depends_on:
       - budibase
+      - supabase-studio
     networks:
       - budibase-network
     deploy:
@@ -128,6 +171,8 @@ networks:
     attachable: true
 
 volumes:
+  supabase_data:
+    driver: local
   budibase_data:
     driver: local
   redis_data:
@@ -136,36 +181,9 @@ volumes:
     driver: local
 ```
 
-3. Script para Obter Credenciais do Supabase
+2. Configuração do Nginx para Múltiplos Serviços
 
-scripts/supabase-setup.sh:
-
-```bash
-#!/bin/bash
-
-echo "=== Configuração do Supabase ==="
-echo "Obtenha as credenciais do seu projeto Supabase:"
-echo "1. Acesse https://app.supabase.com"
-echo "2. Selecione seu projeto"
-echo "3. Vá em Settings -> Database"
-echo "4. Anote as credenciais de conexão"
-
-read -p "Host do Supabase: " SUPABASE_HOST
-read -p "Porta (padrão 6543): " SUPABASE_PORT
-read -p "Database name: " SUPABASE_DB
-read -p "Usuário: " SUPABASE_USER
-read -s -p "Senha: " SUPABASE_PASSWORD
-echo
-
-# Atualizar arquivo de environment
-sed -i.bak "s|POSTGRES_URL=.*|POSTGRES_URL=postgresql://${SUPABASE_USER}:${SUPABASE_PASSWORD}@${SUPABASE_HOST}:${SUPABASE_PORT:-6543}/${SUPABASE_DB}?ssl=allow|" ../config/budibase.env
-
-echo "Configuração do Supabase atualizada com sucesso!"
-```
-
-4. Configuração de Health Check Melhorada
-
-nginx/nginx.conf (atualizado):
+nginx/nginx.conf:
 
 ```nginx
 upstream budibase_backend {
@@ -173,9 +191,14 @@ upstream budibase_backend {
     keepalive 32;
 }
 
+upstream supabase_studio {
+    server supabase-studio:3000;
+    keepalive 32;
+}
+
 server {
     listen 80;
-    server_name cobom.app;
+    server_name cobom.app studio.cobom.app;
     return 301 https://$server_name$request_uri;
 }
 
@@ -200,68 +223,204 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         
-        # Timeouts
         proxy_connect_timeout 30s;
         proxy_send_timeout 30s;
         proxy_read_timeout 30s;
     }
 
-    # Health check endpoint
     location /health {
         proxy_pass http://budibase_backend/api/global/health;
         access_log off;
         add_header Content-Type application/json;
     }
 }
+
+server {
+    listen 443 ssl http2;
+    server_name studio.cobom.app;
+
+    ssl_certificate /etc/nginx/ssl/cobom.app.crt;
+    ssl_certificate_key /etc/nginx/ssl/cobom.app.key;
+    
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # Proxy para Supabase Studio
+    location / {
+        proxy_pass http://supabase_studio;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+    }
+}
 ```
 
-5. Como Executar o Sistema Corretamente
+3. Script de Inicialização do Supabase
 
-1. Configurar o Supabase:
-   ```bash
-   chmod +x scripts/supabase-setup.sh
-   ./scripts/supabase-setup.sh
-   ```
-2. Gerar senhas seguras:
-   ```bash
-   # Gerar JWT Secret
-   openssl rand -base64 32
-   
-   # Gerar outras senhas
-   openssl rand -base64 24
-   ```
-3. Configurar o arquivo de environment: Edite config/budibase.env com todas as credenciais necessárias.
-4. Implantar no Swarm:
-   ```bash
-   ./scripts/deploy.sh
-   ```
+supabase/scripts/init-supabase.sql:
 
-6. Verificação da Conexão com Supabase
+```sql
+-- Criar database específico para Budibase
+CREATE DATABASE budibase;
 
-scripts/check-supabase-connection.sh:
+-- Criar usuário específico para Budibase (opcional)
+CREATE USER budibase_user WITH PASSWORD 'budibase_password';
+GRANT ALL PRIVILEGES ON DATABASE budibase TO budibase_user;
+
+-- Extensões necessárias
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Configurações adicionais
+ALTER DATABASE postgres SET timezone TO 'UTC';
+ALTER DATABASE budibase SET timezone TO 'UTC';
+```
+
+4. Variáveis de Ambiente Atualizadas
+
+config/budibase.env:
+
+```env
+# Supabase Database
+SUPABASE_DB_PASSWORD=supabase_password_forte_32_caracteres
+SUPABASE_JWT_SECRET=supabase_jwt_secret_32_caracteres
+
+# Budibase Security
+JWT_SECRET=budibase_jwt_secret_32_caracteres
+API_ENCRYPTION_PASSWORD=budibase_encryption_32_caracteres
+
+# MinIO (armazenamento)
+MINIO_ACCESS_KEY=minio_access_key_aleatorio
+MINIO_SECRET_KEY=minio_secret_key_aleatorio_32_caracteres
+
+# Redis (interno)
+REDIS_URL=redis://budibase_redis:6379
+REDIS_PASSWORD=redis_password_forte_32_caracteres
+
+# CouchDB (para metadados do Budibase - interno)
+COUCH_DB_URL=http://admin:senha_couchdb@budibase_couchdb:5984
+COUCH_DB_USERNAME=admin
+COUCH_DB_PASSWORD=couchdb_password_forte_32_caracteres
+
+# Configurações adicionais do Budibase
+BB_ADMIN_EMAIL=admin@cobom.app
+BB_ADMIN_PASSWORD=admin_password_forte
+BB_URL=https://cobom.app
+```
+
+5. Script para Gerar Senhas Seguras
+
+scripts/generate-passwords.sh:
 
 ```bash
 #!/bin/bash
 
-# Carregar variáveis
+echo "Gerando senhas seguras para o sistema..."
+
+# Gerar todas as senhas necessárias
+generate_password() {
+    openssl rand -base64 32 | tr -d '/+=' | head -c 32
+}
+
+echo "SUPABASE_DB_PASSWORD=$(generate_password)" >> ../config/budibase.env
+echo "SUPABASE_JWT_SECRET=$(generate_password)" >> ../config/budibase.env
+echo "JWT_SECRET=$(generate_password)" >> ../config/budibase.env
+echo "API_ENCRYPTION_PASSWORD=$(generate_password)" >> ../config/budibase.env
+echo "REDIS_PASSWORD=$(generate_password)" >> ../config/budibase.env
+echo "COUCH_DB_PASSWORD=$(generate_password)" >> ../config/budibase.env
+echo "MINIO_ACCESS_KEY=$(openssl rand -hex 16)" >> ../config/budibase.env
+echo "MINIO_SECRET_KEY=$(generate_password)" >> ../config/budibase.env
+
+echo "Senhas geradas e salvas em config/budibase.env"
+```
+
+6. Script de Deploy Atualizado
+
+scripts/deploy.sh:
+
+```bash
+#!/bin/bash
+
+# Verificar se as senhas foram geradas
+if ! grep -q "SUPABASE_DB_PASSWORD" ../config/budibase.env; then
+    echo "Gerando senhas automaticamente..."
+    ./generate-passwords.sh
+fi
+
+# Carregar variáveis de ambiente
 set -a
 source ../config/budibase.env
 set +a
 
-# Extrair informações da URL do Supabase
-DB_URL=$(echo $POSTGRES_URL | sed 's/.*:\/\/\(.*\):\(.*\)@\(.*\):\(.*\)\/\(.*\)?.*/\1:\2@\3:\4\/\5/')
+# Implantar stack no Docker Swarm
+echo "Implantando stack Budibase + Supabase..."
+docker stack deploy -c ../docker-swarm.yml budibase-supabase
 
-echo "Testando conexão com Supabase..."
-echo "URL: $POSTGRES_URL"
+# Verificar status
+echo "Verificando status dos serviços..."
+docker service ls
 
-# Testar conexão (requer psql instalado)
-if command -v psql &> /dev/null; then
-    psql "$POSTGRES_URL" -c "SELECT version();" && \
-    echo "✅ Conexão com Supabase bem-sucedida!" || \
-    echo "❌ Falha na conexão com Supabase"
-else
-    echo "⚠️  Instale o psql para testar a conexão: sudo apt-get install postgresql-client"
-fi
+echo "Implantação concluída!"
+echo "Acesse:"
+echo " - Budibase: https://cobom.app"
+echo " - Supabase Studio: https://studio.cobom.app"
+echo " - Banco de dados: supabase-db:5432"
 ```
 
-Agora está correto: o Supabase é um serviço externo, e o Budibase se conecta a ele via URL de conexão PostgreSQL. Os serviços internos (Redis, CouchDB) são para operação do próprio Budibase.
+7. Configuração do Hosts
+
+Adicione estas linhas ao arquivo /etc/hosts em ambas as máquinas:
+
+```
+127.0.0.1   cobom.app
+127.0.0.1   studio.cobom.app
+# Ou os IPs dos seus nodes se for acessar de outra máquina
+```
+
+Como Executar
+
+1. Preparar as máquinas:
+   ```bash
+   # Instalar Docker em ambas as máquinas
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo sh get-docker.sh
+   ```
+2. Inicializar o Swarm:
+   ```bash
+   chmod +x scripts/init-swarm.sh
+   ./scripts/init-swarm.sh
+   ```
+3. Gerar certificados SSL:
+   ```bash
+   mkdir -p nginx/ssl
+   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+     -keyout nginx/ssl/cobom.app.key \
+     -out nginx/ssl/cobom.app.crt \
+     -subj "/CN=cobom.app"
+   ```
+4. Implantar o sistema:
+   ```bash
+   chmod +x scripts/deploy.sh
+   ./scripts/deploy.sh
+   ```
+5. Verificar o status:
+   ```bash
+   docker service ls
+   docker service logs budibase-supabase_budibase
+   docker service logs budibase-supabase_supabase-db
+   ```
+
+Agora você terá um sistema completo com:
+
+· ✅ Supabase PostgreSQL local
+· ✅ Supabase Studio para gerenciamento
+· ✅ Supabase Auth para autenticação
+· ✅ Budibase conectado ao Supabase
+· ✅ Nginx com SSL e múltiplos domínios
+· ✅ Docker Swarm distribuído em duas máquinas
