@@ -3,7 +3,7 @@
 ## 📋 Índice
 1. [Comandos Básicos](#comandos-básicos)
 2. [Comandos Básicos para Gerenciamento de Usuários](#Comandos-Básicos-para-Gerenciamento-de-Usuários)
-3. [Schemas](#Schemas-no-PostgreSQL.)
+3. [Schemas no PostgreSQL](#Schemas-no-PostgreSQL.)
 4. [DDL - Definição de Dados](#ddl---definição-de-dados)
 5. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
 6. [Consultas e Cláusulas](#consultas-e-cláusulas)
@@ -284,7 +284,7 @@ docker exec -it nome_container psql -U novo_usuario -d nome_banco -c "SELECT cur
 ```
 
 ---
-##Schemas no PostgreSQL.
+## Schemas no PostgreSQL.
 
 ### 1. Criando um Schema Básico
 
