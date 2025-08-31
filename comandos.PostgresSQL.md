@@ -2,14 +2,15 @@
 
 ## 📋 Índice
 1. [Comandos Básicos](#comandos-básicos)
-2. [DDL - Definição de Dados](#ddl---definição-de-dados)
-3. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
-4. [Consultas e Cláusulas](#consultas-e-cláusulas)
-5. [Funções](#funções)
-6. [Joins](#joins)
-7. [Transações](#transações)
-8. [Controle de Acesso](#controle-de-acesso)
-9. [Utilitários](#utilitários)
+2. [Comandos Básicos para Gerenciamento de Usuários](#Comandos-Básicos-para-Gerenciamento-de-Usuários)
+3. [DDL - Definição de Dados](#ddl---definição-de-dados)
+4. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
+5. [Consultas e Cláusulas](#consultas-e-cláusulas)
+6. [Funções](#funções)
+7. [Joins](#joins)
+8. [Transações](#transações)
+9. [Controle de Acesso](#controle-de-acesso)
+10. [Utilitários](#utilitários)
 
 ---
 
@@ -29,7 +30,259 @@ psql -h hostname -p port -U username -d database_name
 \du         -- Listar usuários
 \q          -- Sair do psql
 ```
+---
+## Comandos Básicos para Gerenciamento de Usuários
 
+### 1. Conectar como superusuário
+```bash
+# Conectar ao PostgreSQL (como postgres ou outro superusuário)
+docker exec -it nome_container psql -U postgres -d postgres
+```
+
+### 2. Criar um novo usuário
+```sql
+-- Criar usuário com senha
+CREATE USER nome_usuario WITH PASSWORD 'senha_segura';
+
+-- Criar usuário com validade de senha
+CREATE USER nome_usuario WITH PASSWORD 'senha_segura' VALID UNTIL '2025-12-31';
+
+-- Criar usuário com opções adicionais
+CREATE USER nome_usuario WITH 
+  PASSWORD 'senha_segura'
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  INHERIT
+  LOGIN;
+```
+
+### 3. Alterar usuário existente
+```sql
+-- Alterar senha
+ALTER USER nome_usuario WITH PASSWORD 'nova_senha';
+
+-- Adicionar permissões
+ALTER USER nome_usuario CREATEDB CREATEROLE;
+
+-- Remover permissões
+ALTER USER nome_usuario NOCREATEDB NOCREATEROLE;
+
+-- Renomear usuário
+ALTER USER nome_antigo RENAME TO novo_nome;
+
+-- Definir data de expiração
+ALTER USER nome_usuario VALID UNTIL '2025-12-31';
+```
+
+### 4. Excluir usuário
+```sql
+-- Remover usuário (só funciona se o usuário não tiver objetos)
+DROP USER nome_usuario;
+
+-- Remover usuário e todos os seus objetos
+DROP USER nome_usuario CASCADE;
+```
+
+## 🛡️ Conceder Privilégios (GRANT)
+
+### Privilégios em Bancos de Dados
+```sql
+-- Conceder todos os privilégios em um banco específico
+GRANT ALL PRIVILEGES ON DATABASE nome_banco TO nome_usuario;
+
+-- Conceder conexão a um banco
+GRANT CONNECT ON DATABASE nome_banco TO nome_usuario;
+
+-- Conceder criação de banco de dados
+ALTER USER nome_usuario CREATEDB;
+```
+
+### Privilégios em Esquemas (Schemas)
+```sql
+-- Conceder uso do schema
+GRANT USAGE ON SCHEMA nome_schema TO nome_usuario;
+
+-- Conceder todos os privilégios no schema
+GRANT ALL PRIVILEGES ON SCHEMA nome_schema TO nome_usuario;
+
+-- Conceder criação no schema
+GRANT CREATE ON SCHEMA nome_schema TO nome_usuario;
+```
+
+### Privilégios em Tabelas
+```sql
+-- Conceder todos os privilégios em todas as tabelas do schema
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA nome_schema TO nome_usuario;
+
+-- Conceder privilégios específicos em uma tabela
+GRANT SELECT, INSERT, UPDATE ON TABLE nome_tabela TO nome_usuario;
+
+-- Conceder privilégios em colunas específicas
+GRANT SELECT (coluna1, coluna2), UPDATE (coluna1) ON TABLE nome_tabela TO nome_usuario;
+```
+
+### Privilégios em Sequências
+```sql
+-- Conceder uso de sequências
+GRANT USAGE, SELECT ON SEQUENCE nome_sequencia TO nome_usuario;
+
+-- Conceder todos os privilégios em todas as sequências
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA nome_schema TO nome_usuario;
+```
+
+## 🔍 Revogar Privilégios (REVOKE)
+
+### Revogar privilégios
+```sql
+-- Revogar todos os privilégios de um usuário
+REVOKE ALL PRIVILEGES ON DATABASE nome_banco FROM nome_usuario;
+
+-- Revogar privilégios específicos
+REVOKE INSERT, UPDATE ON TABLE nome_tabela FROM nome_usuario;
+
+-- Revogar todos os privilégios em todas as tabelas
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA nome_schema FROM nome_usuario;
+```
+
+## 👥 Grupos e Roles
+
+### Criar e gerenciar grupos
+```sql
+-- Criar um grupo (role)
+CREATE ROLE nome_grupo;
+
+-- Adicionar usuário ao grupo
+GRANT nome_grupo TO nome_usuario;
+
+-- Remover usuário do grupo
+REVOKE nome_grupo FROM nome_usuario;
+
+-- Conceder privilégios ao grupo
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO nome_grupo;
+```
+
+## 🎯 Exemplos Práticos Completos
+
+### Exemplo 1: Usuário com acesso somente leitura
+```sql
+-- Criar usuário leitor
+CREATE USER leitor WITH PASSWORD 'senha_leitura';
+
+-- Conceder privilégios
+GRANT CONNECT ON DATABASE meu_banco TO leitor;
+GRANT USAGE ON SCHEMA public TO leitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO leitor;
+
+-- Para futuras tabelas também
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+GRANT SELECT ON TABLES TO leitor;
+```
+
+### Exemplo 2: Usuário com acesso completo a um schema específico
+```sql
+-- Criar usuário desenvolvedor
+CREATE USER desenvolvedor WITH PASSWORD 'senha_dev';
+
+-- Conceder privilégios completos no schema app
+GRANT CONNECT ON DATABASE meu_banco TO desenvolvedor;
+GRANT ALL PRIVILEGES ON SCHEMA app TO desenvolvedor;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA app TO desenvolvedor;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA app TO desenvolvedor;
+
+-- Para futuros objetos também
+ALTER DEFAULT PRIVILEGES IN SCHEMA app 
+GRANT ALL PRIVILEGES ON TABLES TO desenvolvedor;
+```
+
+### Exemplo 3: Usuário administrador de um banco específico
+```sql
+-- Criar usuário admin
+CREATE USER admin_banco WITH PASSWORD 'senha_admin';
+
+-- Tornar proprietário do banco (cuidado com esta permissão)
+ALTER DATABASE meu_banco OWNER TO admin_banco;
+
+-- Ou conceder todos os privilégios
+GRANT ALL PRIVILEGES ON DATABASE meu_banco TO admin_banco;
+GRANT ALL PRIVILEGES ON SCHEMA public TO admin_banco;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin_banco;
+```
+
+## 📊 Consultar Privilégios Existente
+
+### Verificar privilégios de usuários
+```sql
+-- Listar todos os usuários
+\du
+
+-- Listar privilégios detalhados
+SELECT * FROM pg_roles;
+
+-- Ver privilégios em tabelas
+SELECT grantee, table_name, privilege_type 
+FROM information_schema.table_privileges 
+WHERE grantee = 'nome_usuario';
+
+-- Ver privilégios em bancos de dados
+SELECT datname, datacl FROM pg_database;
+
+-- Ver privilégios em schemas
+SELECT nspname, nspacl FROM pg_namespace;
+```
+
+## 🐳 Exemplo com Docker
+
+### Script completo para criar usuário no container
+```bash
+#!/bin/bash
+# create-user.sh
+
+CONTAINER_NAME="meu-postgres"
+DB_NAME="meu_banco"
+NEW_USER="novo_usuario"
+PASSWORD="senha_segura123"
+
+docker exec -it $CONTAINER_NAME psql -U postgres -d postgres << EOF
+CREATE USER $NEW_USER WITH PASSWORD '$PASSWORD';
+GRANT CONNECT ON DATABASE $DB_NAME TO $NEW_USER;
+GRANT USAGE ON SCHEMA public TO $NEW_USER;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO $NEW_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO $NEW_USER;
+EOF
+
+echo "Usuário $NEW_USER criado com sucesso!"
+```
+
+## ⚠️ Boas Práticas e Segurança
+
+### Recomendações importantes
+```sql
+-- Use senhas fortes
+CREATE USER app_user WITH PASSWORD 'S3nh4F0rt3!2024';
+
+-- Limite privilégios ao mínimo necessário
+GRANT SELECT ON TABLE relatorios TO usuario_leitura;
+
+-- Revogue privilégios padrão
+REVOKE ALL ON DATABASE meu_banco FROM PUBLIC;
+
+-- Use grupos para gerenciamento fácil
+CREATE ROLE leitores;
+GRANT SELECT ON ALL TABLES TO leitores;
+GRANT leitores TO usuario1, usuario2;
+
+-- Defina expiração para usuários temporários
+ALTER USER usuario_temporario VALID UNTIL '2024-12-31';
+```
+
+### Comando para testar conexão do novo usuário
+```bash
+# Testar conexão do novo usuário
+docker exec -it nome_container psql -U novo_usuario -d nome_banco -c "SELECT current_user;"
+```
+
+Este guia cobre desde a criação básica de usuários até a gestão complexa de privilégios no PostgreSQL. Lembre-se de sempre seguir o princípio do menor privilégio para manter a segurança do seu banco de dados.
 ---
 
 ## DDL - Definição de Dados
