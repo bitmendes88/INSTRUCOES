@@ -3,14 +3,15 @@
 ## 📋 Índice
 1. [Comandos Básicos](#comandos-básicos)
 2. [Comandos Básicos para Gerenciamento de Usuários](#Comandos-Básicos-para-Gerenciamento-de-Usuários)
-3. [DDL - Definição de Dados](#ddl---definição-de-dados)
-4. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
-5. [Consultas e Cláusulas](#consultas-e-cláusulas)
-6. [Funções](#funções)
-7. [Joins](#joins)
-8. [Transações](#transações)
-9. [Controle de Acesso](#controle-de-acesso)
-10. [Utilitários](#utilitários)
+3. [Schemas](#Schemas)
+4. [DDL - Definição de Dados](#ddl---definição-de-dados)
+5. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
+6. [Consultas e Cláusulas](#consultas-e-cláusulas)
+7. [Funções](#funções)
+8. [Joins](#joins)
+9. [Transações](#transações)
+10. [Controle de Acesso](#controle-de-acesso)
+11. [Utilitários](#utilitários)
 
 ---
 
@@ -283,7 +284,151 @@ docker exec -it nome_container psql -U novo_usuario -d nome_banco -c "SELECT cur
 ```
 
 ---
+##Schemas no PostgreSQL.
 
+### 1. Criando um Schema Básico
+
+```sql
+-- Sintaxe básica
+CREATE SCHEMA nome_do_schema;
+
+-- Exemplo
+CREATE SCHEMA vendas;
+```
+
+### 2. Criando Schema com Autorização
+
+```sql
+-- Criar schema atribuindo a um usuário específico
+CREATE SCHEMA rh AUTHORIZATION usuario_rh;
+
+-- Verificar usuários existentes
+SELECT usename FROM pg_user;
+```
+
+### 3. Criando Schema com Comentário
+
+```sql
+CREATE SCHEMA financeiro;
+COMMENT ON SCHEMA financeiro IS 'Schema para tabelas do departamento financeiro';
+```
+
+### 4. Criando Tabelas Dentro de Schemas
+
+```sql
+-- Criar tabela em schema específico
+CREATE TABLE vendas.pedidos (
+    id SERIAL PRIMARY KEY,
+    cliente_id INTEGER,
+    data_pedido DATE,
+    valor_total DECIMAL(10,2)
+);
+
+-- Criar outra tabela no mesmo schema
+CREATE TABLE vendas.clientes (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(100),
+    email VARCHAR(100)
+);
+```
+
+### 5. Consultando Schemas Existentes
+
+```sql
+-- Listar todos os schemas
+SELECT schema_name 
+FROM information_schema.schemata 
+ORDER BY schema_name;
+
+-- Schemas do sistema e usuário
+SELECT nspname AS schema_name, 
+       nspowner::regrole AS owner,
+       obj_description(oid, 'pg_namespace') AS description
+FROM pg_namespace
+ORDER BY nspname;
+```
+
+### 6. Permissões e Privilégios
+
+```sql
+-- Conceder permissões em um schema
+GRANT USAGE ON SCHEMA vendas TO usuario_leitura;
+GRANT SELECT ON ALL TABLES IN SCHEMA vendas TO usuario_leitura;
+
+-- Conceder todos os privilégios
+GRANT ALL PRIVILEGES ON SCHEMA vendas TO usuario_admin;
+```
+
+### 7. Alterando Schemas
+
+```sql
+-- Renomear schema
+ALTER SCHEMA vendas RENAME TO comercial;
+
+-- Alterar proprietário
+ALTER SCHEMA rh OWNER TO novo_proprietario;
+```
+
+### 8. Excluindo Schemas
+
+```sql
+-- Excluir schema vazio
+DROP SCHEMA nome_do_schema;
+
+-- Excluir schema com todas as tabelas (CUIDADO!)
+DROP SCHEMA nome_do_schema CASCADE;
+```
+
+### 9. Exemplo Prático Completo
+
+```sql
+-- Criar schema para e-commerce
+CREATE SCHEMA ecommerce AUTHORIZATION admin_user;
+
+-- Criar tabelas no schema
+CREATE TABLE ecommerce.produtos (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(200) NOT NULL,
+    preco DECIMAL(10,2),
+    estoque INTEGER DEFAULT 0
+);
+
+CREATE TABLE ecommerce.pedidos (
+    id SERIAL PRIMARY KEY,
+    cliente_id INTEGER,
+    data_criacao TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(20)
+);
+
+-- Conceder permissões
+GRANT USAGE ON SCHEMA ecommerce TO usuario_app;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA ecommerce TO usuario_app;
+
+-- Adicionar comentário
+COMMENT ON SCHEMA ecommerce IS 'Schema para sistema de e-commerce';
+```
+
+### 10. Configurando Search Path
+
+```sql
+-- Ver search path atual
+SHOW search_path;
+
+-- Alterar search path para incluir seu schema
+SET search_path TO vendas, public;
+
+-- Alterar permanentemente para um usuário
+ALTER USER meu_usuario SET search_path = vendas, public;
+```
+
+### Dicas Importantes:
+
+1. **Schemas padrão**: PostgreSQL vem com schemas como `public`, `information_schema`, `pg_catalog`
+2. **Organização**: Use schemas para separar lógica de negócio (vendas, rh, financeiro)
+3. **Segurança**: Controle de acesso por schema é mais granular
+4. **Backup**: Você pode fazer backup de schemas específicos
+
+---
 ## DDL - Definição de Dados
 
 ### Bancos de Dados
