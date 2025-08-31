@@ -282,7 +282,6 @@ ALTER USER usuario_temporario VALID UNTIL '2024-12-31';
 docker exec -it nome_container psql -U novo_usuario -d nome_banco -c "SELECT current_user;"
 ```
 
-Este guia cobre desde a criação básica de usuários até a gestão complexa de privilégios no PostgreSQL. Lembre-se de sempre seguir o princípio do menor privilégio para manter a segurança do seu banco de dados.
 ---
 
 ## DDL - Definição de Dados
