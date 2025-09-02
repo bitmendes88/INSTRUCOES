@@ -21,7 +21,7 @@
 ```bash
 psql -h hostname -p port -U username -d database_name
 ```
-### CRIAÇÃO DE USUÁRIOS E PRIVILÉGIOS
+### Criação de usuários e privilégios
 ```bash
 -- Criar usuário para aplicação web
 CREATE USER web_app_user WITH 
