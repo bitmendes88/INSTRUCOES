@@ -21,7 +21,31 @@
 ```bash
 psql -h hostname -p port -U username -d database_name
 ```
+### CRIAÇÃO DE USUÁRIOS E PRIVILÉGIOS
+```bash
+-- Criar usuário para aplicação web
+CREATE USER web_app_user WITH 
+    PASSWORD 'Str0ngP@ssw0rd!2024'
+    NOSUPERUSER
+    NOCREATEDB
+    NOCREATEROLE
+    NOINHERIT
+    LOGIN
+    CONNECTION LIMIT 50; -- Limite de conexões simultâneas
 
+-- Conceder privilégios
+GRANT CONNECT ON DATABASE my_production_db TO web_app_user;
+GRANT USAGE ON SCHEMA public TO web_app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO web_app_user;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO web_app_user;
+
+-- Privilégios padrão para objetos futuros
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO web_app_user;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+GRANT USAGE ON SEQUENCES TO web_app_user;
+```
 ### Comandos no psql
 ```sql
 \l          -- Listar bancos de dados
