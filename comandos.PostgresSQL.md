@@ -2,16 +2,17 @@
 
 ## 📋 Índice
 1. [Comandos Básicos](#comandos-básicos)
-2. [Comandos Básicos para Gerenciamento de Usuários](#Comandos-Básicos-para-Gerenciamento-de-Usuários)
-3. [Schemas no PostgreSQL](#Schemas-no-PostgreSQL.)
-4. [DDL - Definição de Dados](#ddl---definição-de-dados)
-5. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
-6. [Consultas e Cláusulas](#consultas-e-cláusulas)
-7. [Funções](#funções)
-8. [Joins](#joins)
-9. [Transações](#transações)
-10. [Controle de Acesso](#controle-de-acesso)
-11. [Utilitários](#utilitários)
+2. [Comandos Para Consultas de Administração](#Comandos-Para-Consultas-de-Administração)
+3. [Comandos Básicos para Gerenciamento de Usuários](#Comandos-Básicos-para-Gerenciamento-de-Usuários)
+4. [Schemas no PostgreSQL](#Schemas-no-PostgreSQL.)
+5. [DDL - Definição de Dados](#ddl---definição-de-dados)
+6. [DML - Manipulação de Dados](#dml---manipulação-de-dados)
+7. [Consultas e Cláusulas](#consultas-e-cláusulas)
+8. [Funções](#funções)
+9. [Joins](#joins)
+10. [Transações](#transações)
+11. [Controle de Acesso](#controle-de-acesso)
+12. [Utilitários](#utilitários)
 
 ---
 
@@ -55,6 +56,388 @@ GRANT USAGE ON SEQUENCES TO web_app_user;
 \du         -- Listar usuários
 \q          -- Sair do psql
 ```
+---
+##Comandos Para Consultas de Administração
+
+# Comandos PostgreSQL para Consultas de Administração
+
+## Conexão e Informações Básicas
+
+```sql
+-- Conectar ao PostgreSQL
+psql -U username -d database_name -h host -p port
+
+-- Ver versão do PostgreSQL
+SELECT version();
+
+-- Ver data e hora atual
+SELECT now();
+
+-- Informações sobre a conexão atual
+SELECT current_user, current_database(), inet_client_addr(), inet_client_port();
+```
+
+## Consulta de Usuários e Roles
+
+```sql
+-- Listar todos os usuários/roles
+SELECT * FROM pg_roles;
+
+-- Listar usuários com login
+SELECT usename AS username, usesuper AS is_superuser, usecreatedb AS can_create_db 
+FROM pg_user;
+
+-- Informações detalhadas sobre um usuário específico
+SELECT * FROM pg_user WHERE usename = 'nome_do_usuario';
+
+-- Ver privilégios de um usuário
+SELECT * FROM pg_default_acl WHERE defacluser = (SELECT oid FROM pg_roles WHERE rolname = 'nome_do_usuario');
+```
+
+## Consulta de Bancos de Dados
+
+```sql
+-- Listar todos os bancos de dados
+SELECT datname, datistemplate, datallowconn, datconnlimit, pg_size_pretty(pg_database_size(datname)) as size
+FROM pg_database
+ORDER BY datname;
+
+-- Informações detalhadas de um banco específico
+SELECT * FROM pg_database WHERE datname = 'nome_do_banco';
+
+-- Tamanho de todos os bancos
+SELECT datname, pg_size_pretty(pg_database_size(datname)) as size
+FROM pg_database
+ORDER BY pg_database_size(datname) DESC;
+
+-- Conexões ativas por banco
+SELECT datname, count(*) as connections
+FROM pg_stat_activity 
+WHERE datname IS NOT NULL 
+GROUP BY datname;
+```
+
+## Consulta de Schemas
+
+```sql
+-- Listar todos os schemas
+SELECT nspname AS schema_name, nspowner::regrole AS owner, nspacl AS privileges
+FROM pg_namespace
+ORDER BY nspname;
+
+-- Schemas do usuário atual
+SELECT schema_name 
+FROM information_schema.schemata 
+ORDER BY schema_name;
+
+-- Ver objetos por schema
+SELECT nspname AS schema, 
+       count(*) FILTER (WHERE relkind = 'r') AS tables,
+       count(*) FILTER (WHERE relkind = 'v') AS views,
+       count(*) FILTER (WHERE relkind = 'i') AS indexes,
+       count(*) FILTER (WHERE relkind = 'S') AS sequences
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+GROUP BY nspname
+ORDER BY nspname;
+```
+
+## Consulta de Privilégios
+
+```sql
+-- Privilégios em tabelas
+SELECT grantee, table_schema, table_name, privilege_type
+FROM information_schema.table_privileges
+WHERE grantee = 'nome_do_usuario'
+ORDER BY table_schema, table_name;
+
+-- Privilégios em schemas
+SELECT nspname AS schema, rolname AS grantee, privilege_type
+FROM pg_namespace
+CROSS JOIN pg_roles
+CROSS JOIN unnest(ARRAY['USAGE','CREATE']) AS privilege_type
+WHERE has_schema_privilege(rolname, nspname, privilege_type)
+ORDER BY nspname, rolname;
+
+-- Privilégios de usuários em bancos
+SELECT datname AS database, rolname AS username, 
+       CASE 
+           WHEN has_database_privilege(rolname, datname, 'CONNECT') THEN 'CONNECT' 
+           ELSE 'NO ACCESS' 
+       END AS access
+FROM pg_database, pg_roles
+WHERE rolname NOT LIKE 'pg_%'
+ORDER BY datname, rolname;
+
+-- Verificar privilégios específicos de um usuário
+SELECT has_schema_privilege('usuario', 'schema', 'USAGE');
+SELECT has_table_privilege('usuario', 'tabela', 'SELECT');
+SELECT has_database_privilege('usuario', 'banco', 'CONNECT');
+```
+
+## Consulta de Tabelas e Estrutura
+
+```sql
+-- Listar todas as tabelas
+SELECT schemaname, tablename, tableowner, tablespace
+FROM pg_tables
+ORDER BY schemaname, tablename;
+
+-- Listar tabelas de um schema específico
+SELECT tablename 
+FROM pg_tables 
+WHERE schemaname = 'nome_do_schema'
+ORDER BY tablename;
+
+-- Estrutura de uma tabela
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'nome_do_schema' AND table_name = 'nome_da_tabela'
+ORDER BY ordinal_position;
+
+-- Tamanho das tabelas
+SELECT schemaname, relname AS table_name,
+       pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+       pg_size_pretty(pg_relation_size(relid)) AS table_size,
+       pg_size_pretty(pg_total_relation_size(relid) - pg_relation_size(relid)) AS index_size
+FROM pg_catalog.pg_statio_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;
+```
+
+## Consulta de Índices
+
+```sql
+-- Listar índices de uma tabela
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'nome_da_tabela' AND schemaname = 'nome_do_schema'
+ORDER BY indexname;
+
+-- Índices e estatísticas
+SELECT schemaname, tablename, indexname, 
+       idx_scan, idx_tup_read, idx_tup_fetch
+FROM pg_stat_all_indexes
+WHERE schemaname = 'nome_do_schema'
+ORDER BY idx_scan DESC;
+```
+
+## Consulta de Views
+
+```sql
+-- Listar todas as views
+SELECT schemaname, viewname, viewowner, definition
+FROM pg_views
+ORDER BY schemaname, viewname;
+
+-- Views de um schema específico
+SELECT viewname 
+FROM pg_views 
+WHERE schemaname = 'nome_do_schema'
+ORDER BY viewname;
+```
+
+## Consulta de Funções e Procedures
+
+```sql
+-- Listar funções
+SELECT n.nspname as schema, p.proname as function, 
+       pg_get_function_arguments(p.oid) as arguments,
+       pg_get_function_result(p.oid) as returns
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY n.nspname, p.proname;
+
+-- Informações detalhadas de uma função
+SELECT prosrc AS source_code, prolang::regclass AS language, 
+       prosecdef AS security_definer, provolatile AS volatility
+FROM pg_proc
+WHERE proname = 'nome_da_funcao';
+```
+
+## Consulta de Sequences
+
+```sql
+-- Listar sequences
+SELECT sequence_schema, sequence_name, data_type, 
+       start_value, minimum_value, maximum_value, increment
+FROM information_schema.sequences
+ORDER BY sequence_schema, sequence_name;
+
+-- Valor atual de uma sequence
+SELECT last_value FROM nome_da_sequence;
+```
+
+## Consulta de Regras (Rules)
+
+```sql
+-- Listar regras
+SELECT schemaname, tablename, rulename, definition
+FROM pg_rules
+ORDER BY schemaname, tablename, rulename;
+
+-- Regras de uma tabela específica
+SELECT rulename, definition
+FROM pg_rules
+WHERE tablename = 'nome_da_tabela' AND schemaname = 'nome_do_schema';
+```
+
+## Consulta de Triggers
+
+```sql
+-- Listar triggers
+SELECT event_object_schema, event_object_table, trigger_name, 
+       event_manipulation, action_statement, action_timing
+FROM information_schema.triggers
+ORDER BY event_object_schema, event_object_table, trigger_name;
+
+-- Triggers de uma tabela
+SELECT trigger_name, action_timing, event_manipulation, action_statement
+FROM information_schema.triggers
+WHERE event_object_table = 'nome_da_tabela' AND event_object_schema = 'nome_do_schema';
+```
+
+## Consulta de Conexões Ativas
+
+```sql
+-- Conexões ativas
+SELECT pid, usename, application_name, client_addr, client_port, 
+       backend_start, state, query
+FROM pg_stat_activity
+WHERE state IS NOT NULL;
+
+-- Conexões por usuário
+SELECT usename, count(*) as connections, 
+       array_agg(DISTINCT datname) as databases
+FROM pg_stat_activity 
+WHERE usename IS NOT NULL 
+GROUP BY usename;
+
+-- Matar uma conexão específica
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = 12345;
+```
+
+## Consulta de Estatísticas e Performance
+
+```sql
+-- Estatísticas de tabelas
+SELECT schemaname, relname, seq_scan, seq_tup_read, 
+       idx_scan, idx_tup_fetch, n_tup_ins, n_tup_upd, n_tup_del
+FROM pg_stat_all_tables
+ORDER BY seq_scan DESC;
+
+-- Estatísticas de bancos
+SELECT datname, numbackends, xact_commit, xact_rollback, 
+       blks_read, blks_hit, tup_returned, tup_fetched, tup_inserted
+FROM pg_stat_database;
+
+-- Cache hit ratio
+SELECT datname, 
+       round(blks_hit::numeric / (blks_hit + blks_read) * 100, 2) as cache_hit_ratio
+FROM pg_stat_database 
+WHERE (blks_hit + blks_read) > 0;
+```
+
+## Consulta de Locks
+
+```sql
+-- Locks ativos
+SELECT locktype, relation::regclass, mode, granted, pid, usename
+FROM pg_locks l
+JOIN pg_stat_activity a ON l.pid = a.pid
+WHERE relation IS NOT NULL;
+
+-- Detectando deadlocks
+SELECT blocked_locks.pid AS blocked_pid,
+       blocking_locks.pid AS blocking_pid,
+       blocked_activity.query AS blocked_query,
+       blocking_activity.query AS blocking_query
+FROM pg_catalog.pg_locks blocked_locks
+JOIN pg_catalog.pg_stat_activity blocked_activity ON blocked_activity.pid = blocked_locks.pid
+JOIN pg_catalog.pg_locks blocking_locks ON blocking_locks.locktype = blocked_locks.locktype
+    AND blocking_locks.DATABASE IS NOT DISTINCT FROM blocked_locks.DATABASE
+    AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
+    AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
+    AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
+    AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
+    AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
+    AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
+    AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
+    AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
+    AND blocking_locks.pid != blocked_locks.pid
+JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
+WHERE NOT blocked_locks.granted;
+```
+
+## Consulta de Configurações
+
+```sql
+-- Configurações do servidor
+SELECT name, setting, unit, context, vartype, source
+FROM pg_settings
+ORDER BY name;
+
+-- Configurações modificáveis
+SELECT name, setting, short_desc
+FROM pg_settings
+WHERE context IN ('user', 'superuser')
+ORDER BY name;
+```
+
+## Consulta de Extensões
+
+```sql
+-- Listar extensões instaladas
+SELECT extname, extversion, nspname
+FROM pg_extension e
+JOIN pg_namespace n ON e.extnamespace = n.oid
+ORDER BY extname;
+
+-- Extensões disponíveis
+SELECT name, default_version, installed_version, comment
+FROM pg_available_extensions
+ORDER BY name;
+```
+
+## Consulta de Tablespaces
+
+```sql
+-- Listar tablespaces
+SELECT spcname, pg_get_userbyid(spcowner) as owner, 
+       pg_tablespace_location(oid) as location,
+       spcacl as privileges
+FROM pg_tablespace
+ORDER BY spcname;
+
+-- Tamanho dos tablespaces
+SELECT spcname, 
+       pg_size_pretty(pg_tablespace_size(oid)) as size
+FROM pg_tablespace
+ORDER BY pg_tablespace_size(oid) DESC;
+```
+
+## Dicas Úteis
+
+```sql
+-- Usar \x para formato expandido no psql
+\x on
+
+-- Usar \timing para ver tempo de execução
+\timing on
+
+-- Limitar número de linhas
+SELECT * FROM tabela LIMIT 10;
+
+-- Ver plano de execução
+EXPLAIN ANALYZE SELECT * FROM tabela WHERE condicao;
+
+-- Exportar resultados para arquivo
+\o resultado.txt
+SELECT * FROM tabela;
+\o
+```
+
+Estes comandos fornecem uma base abrangente para administração e monitoramento de bancos PostgreSQL. Lembre-se de sempre testar comandos de modificação em ambientes de desenvolvimento antes de usar em produção.
 ---
 ## Comandos Básicos para Gerenciamento de Usuários
 
