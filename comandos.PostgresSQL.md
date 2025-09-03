@@ -436,8 +436,6 @@ EXPLAIN ANALYZE SELECT * FROM tabela WHERE condicao;
 SELECT * FROM tabela;
 \o
 ```
-
-Estes comandos fornecem uma base abrangente para administração e monitoramento de bancos PostgreSQL. Lembre-se de sempre testar comandos de modificação em ambientes de desenvolvimento antes de usar em produção.
 ---
 ## Comandos Básicos para Gerenciamento de Usuários
 
