@@ -1,129 +1,374 @@
-# Configuração do Cloudflare Tunnel para app.cbi1.org e mail.cbi1.org
+# Configuração Cloudflare Tunnel + Nginx + Aplicações em Containers
+
+## Arquitetura Proposta
+```
+Internet → Cloudflare (SSL) → Cloudflare Tunnel → Nginx (HTTP 80) → Aplicações em Containers
+Rede Local → Nginx (HTTP) → Aplicações em Containers
+```
 
 ## Pré-requisitos
 - Domínio cbi1.org configurado na Cloudflare
-- Acesso administrativo à conta da Cloudflare
-- Servidor Linux com acesso à internet
-- Permissões de root/sudo no servidor
+- Docker e Docker Compose instalados
+- Acesso à conta Cloudflare
 
-## Passo a passo da configuração
-
-### 1. Configuração DNS na Cloudflare
-
-Acesse o dashboard da Cloudflare e configure os registros DNS:
-
-- **Para app.cbi1.org**: CNAME apontando para seu túnel (será configurado posteriormente)
-- **Para mail.cbi1.org**: CNAME apontando para seu túnel
-
-### 2. Instalação do Cloudflared no Linux
-
+## Estrutura de Diretórios
 ```bash
-# Adicione o repositório da Cloudflare
-wget -q https://packages.cloudflare.com/cloudflare-main.gpg -O /usr/share/keyrings/cloudflare-main.gpg
-echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://packages.cloudflare.com/cloudflared $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
-
-# Atualize e instale o cloudflared
-sudo apt update
-sudo apt install cloudflared
+mkdir -p ~/cbi1-infra/{config,nginx,sites,mail,app}
+cd ~/cbi1-infra
 ```
 
-### 3. Autenticação do Cloudflared
+## 1. Autenticação do Cloudflared
 
 ```bash
-# Execute o comando de login
-cloudflared tunnel login
+# Executar autenticação inicial
+docker run -it --rm \
+  -v ~/cbi1-infra/config:/home/nonroot/.cloudflared \
+  cloudflare/cloudflared:latest tunnel login
 ```
 
-Isso abrirá uma janela no navegador para autenticar e autorizar o acesso à sua conta Cloudflare.
-
-### 4. Criar o Tunnel
+## 2. Criar o Tunnel
 
 ```bash
-# Crie um novo túnel
-cloudflared tunnel create <NOME_DO_TUNNEL>
-# Exemplo: cloudflared tunnel create meu-tunnel
+# Criar tunnel
+docker run -it --rm \
+  -v ~/cbi1-infra/config:/home/nonroot/.cloudflared \
+  cloudflare/cloudflared:latest tunnel create cbi1-tunnel
 ```
 
-Anote o UUID do túnel e o caminho do arquivo de credenciais JSON gerado.
+Anote o UUID retornado.
 
-### 5. Configurar o Arquivo de Configuração
+## 3. Configuração do Cloudflare Tunnel
 
-Crie ou edite o arquivo de configuração em `~/.cloudflared/config.yml`:
+Crie `~/cbi1-infra/config/config.yml`:
 
 ```yaml
 tunnel: <UUID_DO_TUNNEL>
-credentials-file: <CAMINHO_DO_ARQUIVO_DE_CREDENCIAIS>
+credentials-file: /home/nonroot/.cloudflared/<UUID_DO_TUNNEL>.json
+loglevel: info
 
 ingress:
   - hostname: app.cbi1.org
-    service: http://localhost:3000  # Altere para a porta do seu app
+    service: http://nginx:80
+    originRequest:
+      connectTimeout: 30s
+      httpHostHeader: app.cbi1.org
+
   - hostname: mail.cbi1.org
-    service: http://localhost:8080   # Altere para a porta do seu mail server
+    service: http://nginx:80
+    originRequest:
+      connectTimeout: 30s
+      httpHostHeader: mail.cbi1.org
+
   - service: http_status:404
 ```
 
-### 6. Configurar os Registros DNS no Cloudflared
+## 4. Configuração do Nginx
 
-```bash
-# Crie os registros DNS para apontar para o túnel
-cloudflared tunnel route dns <NOME_DO_TUNNEL> app.cbi1.org
-cloudflared tunnel route dns <NOME_DO_TUNNEL> mail.cbi1.org
+Crie `~/cbi1-infra/nginx/nginx.conf`:
+
+```nginx
+worker_processes auto;
+error_log /var/log/nginx/error.log notice;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $host $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    keepalive_timeout 65;
+
+    # Configuração do app.cbi1.org
+    server {
+        listen 80;
+        server_name app.cbi1.org;
+
+        location / {
+            proxy_pass http://app:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 30s;
+        }
+    }
+
+    # Configuração do mail.cbi1.org
+    server {
+        listen 80;
+        server_name mail.cbi1.org;
+
+        location / {
+            proxy_pass http://mail:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 30s;
+        }
+    }
+
+    # Bloquear acesso a outros hosts
+    server {
+        listen 80 default_server;
+        server_name _;
+        return 404;
+    }
+}
 ```
 
-### 7. Executar o Tunnel como Serviço
+## 5. Docker Compose
 
-```bash
-# Instale o cloudflared como serviço
-cloudflared service install
+Crie `~/cbi1-infra/docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  # Cloudflare Tunnel
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel --config /home/nonroot/.cloudflared/config.yml run
+    volumes:
+      - ./config:/home/nonroot/.cloudflared
+    networks:
+      - cbi1-network
+    depends_on:
+      - nginx
+    environment:
+      - TZ=America/Sao_Paulo
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"  # Expor para rede local
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    networks:
+      - cbi1-network
+    environment:
+      - TZ=America/Sao_Paulo
+    depends_on:
+      - app
+      - mail
+
+  # Aplicação Principal
+  app:
+    image: sua-imagem-app:latest  # Substituir pela sua imagem
+    container_name: app-container
+    restart: unless-stopped
+    volumes:
+      - ./app:/app  # Ajustar conforme necessidade
+    networks:
+      - cbi1-network
+    environment:
+      - VIRTUAL_HOST=app.cbi1.org
+      - NODE_ENV=production
+    # expose:
+    #   - "3000"
+
+  # Serviço de Email
+  mail:
+    image: sua-imagem-mail:latest  # Substituir pela sua imagem
+    container_name: mail-container
+    restart: unless-stopped
+    volumes:
+      - ./mail:/app  # Ajustar conforme necessidade
+    networks:
+      - cbi1-network
+    environment:
+      - VIRTUAL_HOST=mail.cbi1.org
+      - NODE_ENV=production
+    # expose:
+    #   - "8080"
+
+networks:
+  cbi1-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 ```
 
-### 8. Iniciar e Gerenciar o Serviço
+## 6. Configurar DNS na Cloudflare
 
 ```bash
-# Inicie o serviço
-sudo systemctl start cloudflared
+# Configurar DNS via cloudflared
+docker run -it --rm \
+  -v ~/cbi1-infra/config:/home/nonroot/.cloudflared \
+  cloudflare/cloudflared:latest tunnel route dns cbi1-tunnel app.cbi1.org
 
-# Verifique o status
-sudo systemctl status cloudflared
-
-# Habilite para iniciar automaticamente
-sudo systemctl enable cloudflared
+docker run -it --rm \
+  -v ~/cbi1-infra/config:/home/nonroot/.cloudflared \
+  cloudflare/cloudflared:latest tunnel route dns cbi1-tunnel mail.cbi1.org
 ```
 
-### 9. Verificar a Configuração
+## 7. Inicialização do Sistema
 
 ```bash
-# Verifique os logs para confirmar que está funcionando
-journalctl -u cloudflared -f
+# Iniciar todos os serviços
+cd ~/cbi1-infra
+docker-compose up -d
 
-# Teste a conexão
-cloudflared tunnel list
+# Verificar status
+docker-compose ps
+
+# Verificar logs
+docker-compose logs -f
 ```
 
-## Configurações Adicionais
+## 8. Verificação da Configuração
 
-### Para Aplicações Web (HTTPS)
-Certifique-se de que sua aplicação local está configurada para aceitar tráfego do tunnel. O Cloudflare fornecerá certificados SSL automaticamente.
+```bash
+# Testar se todos os containers estão comunicando
+docker exec nginx-proxy nginx -t
+docker exec nginx-proxy curl -I http://app:3000
+docker exec nginx-proxy curl -I http://mail:8080
 
-### Configuração Avançada
-Para configurações mais complexas, você pode editar o arquivo de configuração para incluir:
-- Regras de origem
-- Políticas de segurança
-- Configurações de cache
-- Configurações de rede
+# Verificar tunnel
+docker exec cloudflared-tunnel cloudflared tunnel list
+```
 
-## Solução de Problemas Comuns
+## 9. Comandos de Gerenciamento
 
-1. **Erro de conexão**: Verifique se o serviço local está rodando na porta especificada
-2. **Erro de DNS**: Confirme se os registros CNAME foram criados corretamente na Cloudflare
-3. **Problemas de autenticação**: Execute `cloudflared tunnel login` novamente
+```bash
+# Parar serviços
+docker-compose down
 
-## Documentação Oficial
-Consulte a documentação completa em: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps
+# Reiniciar serviços
+docker-compose restart
 
-## Notas Importantes
-- Mantenha o cloudflared atualizado para garantir segurança e performance
-- Monitore os logs regularmente para detectar problemas
-- Considere configurar backups do arquivo de configuração e credenciais
+# Atualizar containers
+docker-compose pull
+docker-compose up -d
 
-Seu tunnel agora deve estar funcionando e acessível através de `app.cbi1.org` e `mail.cbi1.org`.
+# Verificar logs específicos
+docker-compose logs cloudflared
+docker-compose logs nginx
+docker-compose logs app
+docker-compose logs mail
+
+# Acessar container para troubleshooting
+docker exec -it nginx-proxy sh
+docker exec -it app-container sh
+```
+
+## 10. Configuração para Acesso Local
+
+Para acesso local via HTTP (sem Cloudflare):
+
+- **app.cbi1.org**: `http://localhost` (via Nginx na porta 80)
+- **mail.cbi1.org**: `http://localhost` (via Nginx na porta 80)
+
+O Nginx faz o routing baseado no header Host.
+
+## 11. Variáveis de Ambiente das Aplicações
+
+Crie arquivos de ambiente se necessário:
+
+`~/cbi1-infra/app/.env`:
+```env
+NODE_ENV=production
+PORT=3000
+DATABASE_URL=...
+```
+
+`~/cbi1-infra/mail/.env`:
+```env
+NODE_ENV=production
+PORT=8080
+EMAIL_SERVER=...
+```
+
+Atualize o docker-compose.yml para incluir os volumes:
+```yaml
+volumes:
+  - ./app/.env:/app/.env
+  - ./mail/.env:/app/.env
+```
+
+## 12. Monitoramento e Logs
+
+```bash
+# Logs em tempo real
+docker-compose logs -f --tail=50
+
+# Estatísticas de uso
+docker stats
+
+# Verificar saúde dos containers
+docker-compose ps
+```
+
+## Solução de Problemas
+
+### Problema: Containers não se comunicam
+```bash
+# Verificar network
+docker network inspect cbi1-network
+
+# Testar conectividade
+docker exec nginx-proxy ping app
+docker exec nginx-proxy ping mail
+```
+
+### Problema: Tunnel não conecta
+```bash
+# Verificar autenticação
+docker run -it --rm \
+  -v ~/cbi1-infra/config:/home/nonroot/.cloudflared \
+  cloudflare/cloudflared:latest tunnel token
+
+# Verificar logs detalhados
+docker-compose logs cloudflared
+```
+
+### Problema: Nginx não faz routing correto
+```bash
+# Testar configuração do Nginx
+docker exec nginx-proxy nginx -t
+
+# Verificar acesso às aplicações
+docker exec nginx-proxy curl http://app:3000
+docker exec nginx-proxy curl http://mail:8080
+```
+
+## Backup e Restauração
+
+```bash
+# Backup das configurações
+tar -czf cbi1-infra-backup.tar.gz ~/cbi1-infra/
+
+# Restaurar
+tar -xzf cbi1-infra-backup.tar.gz -C ~/
+cd ~/cbi1-infra
+docker-compose up -d
+```
+
+Esta configuração fornece:
+- ✅ Cloudflare Tunnel encaminhando para Nginx na porta 80
+- ✅ Nginx servindo múltiplos apps com base no hostname
+- ✅ SSL apenas na Cloudflare (HTTP local)
+- ✅ Cada app em container separado com rede bridge
+- ✅ Tudo executado via Docker Compose
