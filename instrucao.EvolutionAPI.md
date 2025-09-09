@@ -380,3 +380,180 @@ CORS é um mecanismo de segurança essencial que:
 · ✅ Pode bloquear o QR Code se mal configurado
 
 No seu caso, com CORS_ORIGIN=*, você está permitindo que qualquer domínio acesse sua API, o que resolve o problema do QR Code não aparecer, mas deve ser ajustado para produção.
+
+
+Explicação das Variáveis: SERVER_URL, INSTANCE_SERVER_HOST e QRCODE
+
+SERVER_URL
+
+O que é: URL base completa onde sua Evolution API está hospedada.
+
+Para que serve:
+
+· Gerar URLs completas para webhooks
+· Construir links absolutos para recursos (como QR Codes)
+· Definir a origem correta para redirecionamentos
+
+Exemplo:
+
+```env
+SERVER_URL=https://seu-dominio-local.com
+```
+
+Por que é importante para o QR Code: O WhatsApp exige que a URL do QR Code seja acessível publicamente.Se o SERVER_URL estiver incorreto (ex: http://localhost:8081), o QR Code não funcionará porque o WhatsApp não consegue acessar servidores locais.
+
+---
+
+INSTANCE_SERVER_HOST
+
+O que é: URL específica onde as instâncias do WhatsApp estão hospedadas.
+
+Para que serve:
+
+· Comunicar-se com o serviço de WhatsApp Web
+· Estabelecer a conexão WebSocket para cada instância
+· Gerenciar múltiplas instâncias simultaneamente
+
+Exemplo:
+
+```env
+INSTANCE_SERVER_HOST=https://seu-dominio-local.com
+```
+
+Diferença para SERVER_URL: Enquanto oSERVER_URL é para a API geral, o INSTANCE_SERVER_HOST é especificamente para as conexões das instâncias do WhatsApp.
+
+---
+
+Configurações de QRCODE
+
+QRCODE_GENERATE_INTERVAL
+
+O que é: Intervalo em milissegundos entre as gerações de QR Code.
+
+Para que serve:
+
+· Atualizar automaticamente o QR Code se expirar
+· Manter a sessão ativa enquanto aguarda escaneamento
+
+Exemplo:
+
+```env
+QRCODE_GENERATE_INTERVAL=5000  # 5 segundos
+```
+
+QRCODE_DISPLAY
+
+O que é: Define se o QR Code deve ser exibido/logado no console.
+
+Para que serve:
+
+· Debug e desenvolvimento
+· Visualização direta no terminal
+
+Exemplo:
+
+```env
+QRCODE_DISPLAY=true
+```
+
+QRCODE_LIMIT
+
+O que é: Número máximo de tentativas de geração de QR Code.
+
+Para que serve:
+
+· Prevenir loops infinitos de geração
+· Gerenciar recursos do servidor
+
+Exemplo:
+
+```env
+QRCODE_LIMIT=30  # 30 tentativas máximo
+```
+
+SAVE_QRCODE
+
+O que é: Se deve salvar o QR Code como arquivo de imagem.
+
+Para que serve:
+
+· Acesso alternativo ao QR Code
+· Backup das imagens geradas
+
+Exemplo:
+
+```env
+SAVE_QRCODE=true
+```
+
+---
+
+COMO FUNCIONA O FLUXO DO QR CODE
+
+1. Inicialização:
+   ```bash
+   API → WhatsApp: "Quero conectar"
+   WhatsApp → API: "Aqui está o QR Code"
+   ```
+2. Geração:
+   ```bash
+   API usa SERVER_URL para criar link acessível
+   QR Code é gerado com URL contendo token único
+   ```
+3. Exibição:
+   ```bash
+   Frontend acessa: https://seu-dominio-local.com/qr-code?token=XYZ
+   Ou visualiza imagem salva em /uploads/
+   ```
+4. Escaneamento:
+   ```bash
+   Usuário escaneia com app WhatsApp
+   WhatsApp valida token com servidor
+   Conexão estabelecida via INSTANCE_SERVER_HOST
+   ```
+
+---
+
+PROBLEMAS COMUNS E SOLUÇÕES
+
+QR Code não aparece
+
+Causa: SERVER_URL incorreto Solução:Verifique se a URL é acessível externamente
+
+QR Code expira rapidamente
+
+Causa: QRCODE_GENERATE_INTERVAL muito alto Solução:Diminua o intervalo (2000-5000 ms)
+
+Conexão falha após escaneamento
+
+Causa: INSTANCE_SERVER_HOST incorreto Solução:Certifique-se que aponta para o mesmo domínio
+
+QR Code não atualiza
+
+Causa: QRCODE_LIMIT muito baixo Solução:Aumente o limite (30-50 tentativas)
+
+---
+
+CONFIGURAÇÃO RECOMENDADA PARA REDE LOCAL
+
+```env
+# URL acessível na sua rede
+SERVER_URL=https://seu-dominio-local.com
+
+# Mesmo que SERVER_URL
+INSTANCE_SERVER_HOST=https://seu-dominio-local.com
+
+# Atualiza a cada 5 segundos
+QRCODE_GENERATE_INTERVAL=5000
+
+# Exibe no console para debug
+QRCODE_DISPLAY=true
+
+# 30 tentativas de geração
+QRCODE_LIMIT=30
+
+# Salva como imagem para acesso alternativo
+SAVE_QRCODE=true
+```
+
+Lembre-se de adicionar seu-dominio-local.com ao arquivo hosts da sua máquina para que a rede local consiga resolver o nome do domínio.
