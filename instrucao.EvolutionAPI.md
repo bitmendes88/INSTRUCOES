@@ -272,3 +272,111 @@ http://localhost:8080/  # Listará todos os QR Codes salvos
 5. Permissões: Verifique se a pasta uploads tem permissões de escrita
 
 Essas adaptações devem resolver a maioria dos problemas relacionados à exibição do QR Code na Evolution API.
+
+
+O que é CORS?
+
+Definição Simplificada
+
+CORS (Cross-Origin Resource Sharing) é um mecanismo de segurança dos navegadores que controla como recursos de um site (como APIs, fontes, imagens) podem ser acessados por outro domínio diferente do domínio de origem.
+
+Analogia Prática
+
+Imagine que CORS é como um segurança de boate:
+
+· A boate é seu servidor (evolution-api)
+· Os clientes são os navegadores (Chrome, Firefox, etc.)
+· O segurança (CORS) verifica se cada cliente tem permissão para entrar
+
+Se você tentar acessar a API de um domínio diferente (por exemplo, de http://localhost:3000 para https://seu-dominio-local.com), o "segurança" (navegador) pergunta: "Esse domínio tem permissão para acessar os recursos?"
+
+Por que o CORS é importante para sua Evolution API?
+
+No seu caso, o CORS é crucial porque:
+
+1. Seu frontend (que mostra o QR Code) pode estar em um domínio
+2. Sua API está em outro domínio (ou porta diferente)
+3. Sem CORS configurado corretamente, o navegador bloqueia as requisições
+
+Como funciona na prática
+
+Quando seu navegador faz uma requisição para outra origem, ele primeiro envia uma requisição prévia (preflight) OPTIONS para verificar se tem permissão:
+
+```
+Navegador: OPTIONS https://seu-dominio-local.com/instance/connect
+Servidor: Access-Control-Allow-Origin: https://meu-frontend.com
+Navegador: OK, então posso fazer a requisição REAL
+```
+
+Configuração no seu .env
+
+No seu arquivo .env, estas configurações controlam o CORS:
+
+```env
+# Permite qualquer domínio (*) ou domínios específicos
+CORS_ORIGIN=*
+
+# Quais métodos HTTP são permitidos
+CORS_METHODS=GET,HEAD,PUT,PATCH,POST,DELETE
+
+# Se permite envio de cookies/credenciais
+CORS_CREDENTIALS=true
+
+# Quais cabeçalhos são permitidos
+CORS_ALLOWED_HEADERS=Content-Type,Authorization
+```
+
+Problemas comuns de CORS com QR Code
+
+Se o QR Code não aparece, pode ser devido a:
+
+1. CORS não configurado: A API não envia os cabeçalhos corretos
+2. Domínio não permitido: Seu frontend não está na lista de origens permitidas
+3. Credenciais bloqueadas: O navegador bloqueia cookies necessários
+
+Solução no Nginx
+
+Além da configuração na API, você pode configurar CORS diretamente no Nginx:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name seu-dominio-local.com;
+
+    # Configurações CORS no Nginx
+    add_header 'Access-Control-Allow-Origin' 'https://seu-frontend.com' always;
+    add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
+    add_header 'Access-Control-Allow-Headers' 'Authorization,Content-Type' always;
+    add_header 'Access-Control-Allow-Credentials' 'true' always;
+
+    # Para requisições OPTIONS (preflight)
+    if ($request_method = 'OPTIONS') {
+        return 204;
+    }
+
+    # Resto da configuração...
+}
+```
+
+Modo de Desenvolvimento vs Produção
+
+· Desenvolvimento: CORS_ORIGIN=* (permite tudo)
+· Produção: CORS_ORIGIN=https://seu-dominio-real.com (apenas domínio específico)
+
+Testando problemas de CORS
+
+1. Abra o DevTools do navegador (F12)
+2. Vá na aba "Network"
+3. Tente carregar o QR Code
+4. Verifique se há erros de CORS nas requisições
+
+Resumo
+
+CORS é um mecanismo de segurança essencial que:
+
+· ✅ Controla acesso entre diferentes domínios
+· ✅ Protege contra certos tipos de ataques
+· ✅ É configurado tanto no servidor quanto possível no proxy (Nginx)
+· ✅ Pode bloquear o QR Code se mal configurado
+
+No seu caso, com CORS_ORIGIN=*, você está permitindo que qualquer domínio acesse sua API, o que resolve o problema do QR Code não aparecer, mas deve ser ajustado para produção.
