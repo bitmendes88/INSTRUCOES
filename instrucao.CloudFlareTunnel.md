@@ -372,3 +372,186 @@ Esta configuração fornece:
 - ✅ SSL apenas na Cloudflare (HTTP local)
 - ✅ Cada app em container separado com rede bridge
 - ✅ Tudo executado via Docker Compose
+
+
+Ah, entendi! Com o Nginx na frente, a configuração muda um pouco. Vou te ajudar a configurar corretamente:
+
+1. Verifique a Arquitetura Atual
+
+Seu fluxo provavelmente é: Cloudflare Tunnel → Nginx → Budibase
+
+2. Configuração do Cloudflare Tunnel
+
+Seu config.yml deve apontar para o Nginx:
+
+```yaml
+tunnel: <SEU_TUNNEL_ID>
+credentials-file: /root/.cloudflared/<SEU_TUNNEL_ID>.json
+
+ingress:
+  - hostname: seu-dominio.com
+    service: http://localhost:80    # Porta do Nginx
+    originRequest:
+      noTLSVerify: false           # Nginx geralmente tem SSL
+      httpHostHeader: seu-dominio.com
+
+  - service: http_status:404
+```
+
+3. Configuração do Nginx para Budibase
+
+nginx.conf ou seu virtual host:
+
+```nginx
+server {
+    listen 80;
+    server_name seu-dominio.com;
+
+    # Proxy para o Budibase
+    location / {
+        proxy_pass http://budibase:10000;
+        
+        # Headers importantes para Cloudflare + Budibase
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        
+        # Timeouts
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+        proxy_read_timeout 300;
+        send_timeout 300;
+    }
+
+    # Health check
+    location /health {
+        proxy_pass http://budibase:10000/health;
+        access_log off;
+    }
+}
+```
+
+4. Docker Compose com Nginx
+
+docker-compose.yml:
+
+```yaml
+version: '3.8'
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./ssl:/etc/ssl/certs
+    depends_on:
+      - budibase
+    networks:
+      - budibase-network
+
+  budibase:
+    image: budibase/budibase:latest
+    environment:
+      - BUDIBASE_PUBLIC_URL=https://seu-dominio.com
+      - JWT_SECRET=sua-chave-secreta-aqui
+      - REDIS_URL=redis://redis:6379
+      - MINIO_URL=http://budibase:10000
+      - PORT=10000
+      - BUDIBASE_SERVER_URL=https://seu-dominio.com
+    depends_on:
+      - redis
+      - minio
+    networks:
+      - budibase-network
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - budibase-network
+
+  minio:
+    image: minio/minio
+    environment:
+      - MINIO_ROOT_USER=usuario
+      - MINIO_ROOT_PASSWORD=senha
+    networks:
+      - budibase-network
+
+networks:
+  budibase-network:
+    driver: bridge
+```
+
+5. Variáveis de Ambiente Cruciais
+
+No Budibase, estas variáveis são ESSENCIAIS:
+
+```yaml
+environment:
+  - BUDIBASE_PUBLIC_URL=https://seu-dominio.com
+  - BUDIBASE_SERVER_URL=https://seu-dominio.com
+  - BUDIBASE_CORS_ALLOWED_ORIGINS=https://seu-dominio.com
+  - JWT_SECRET=uma-chave-secreta-forte-aqui
+```
+
+6. Comandos para Testar
+
+```bash
+# Testar se Nginx está respondendo
+curl -v http://localhost:80
+
+# Testar se Budibase está respondendo internamente
+curl -v http://budibase:10000/health
+
+# Ver logs do Nginx
+docker logs nginx-container
+
+# Ver logs do Budibase
+docker logs budibase-container
+
+# Ver logs do Cloudflare Tunnel
+cloudflared tunnel tail seu-tunnel
+```
+
+7. Problemas Comuns e Soluções
+
+A. Erro 502 Bad Gateway
+
+```bash
+# Verificar se containers estão comunicando
+docker exec nginx-container ping budibase
+```
+
+B. Erro de CORS
+
+Adicione no Nginx:
+
+```nginx
+add_header 'Access-Control-Allow-Origin' 'https://seu-dominio.com';
+add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range';
+```
+
+C. Timeouts
+
+Aumente timeouts no Nginx:
+
+```nginx
+proxy_connect_timeout 600;
+proxy_send_timeout 600;
+proxy_read_timeout 600;
+```
+
+8. Verificação Final
+
+1. ✅ Nginx responde localmente na porta 80
+2. ✅ Budibase responde internamente na porta 10000
+3. ✅ Tunnel Cloudflare apontando para porta 80
+4. ✅ Variáveis de ambiente corretas no Budibase
+5. ✅ DNS apontando para o Tunnel
+
+Qual erro específico você está vendo? Pode compartilhar os logs do Nginx ou do Cloudflare Tunnel?
