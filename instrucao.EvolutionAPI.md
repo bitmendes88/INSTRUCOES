@@ -1,6 +1,5 @@
 Configuração para domínio local evolution.cbi1.org
 
-Excelente! Um domínio local com SSL é a solução ideal para sua Evolution API. Vou configurar tudo para funcionar com evolution.cbi1.org.
 
 1. docker-compose.yml
 
@@ -195,106 +194,6 @@ server {
 }
 ```
 
-4. Script para gerar SSL (generate-ssl.sh)
-
-```bash
-#!/bin/bash
-
-# Create SSL directory
-mkdir -p nginx/ssl
-
-# Generate private key
-openssl genrsa -out nginx/ssl/evolution.cbi1.org.key 2048
-
-# Generate CSR
-openssl req -new -key nginx/ssl/evolution.cbi1.org.key -out nginx/ssl/evolution.cbi1.org.csr \
-  -subj "/C=BR/ST=Estado/L=Cidade/O=Organizacao/CN=evolution.cbi1.org"
-
-# Generate self-signed certificate
-openssl x509 -req -days 3650 -in nginx/ssl/evolution.cbi1.org.csr \
-  -signkey nginx/ssl/evolution.cbi1.org.key -out nginx/ssl/evolution.cbi1.org.crt
-
-# Set permissions
-chmod 644 nginx/ssl/evolution.cbi1.org.crt
-chmod 600 nginx/ssl/evolution.cbi1.org.key
-
-echo "SSL certificate generated for evolution.cbi1.org"
-echo "Files created:"
-echo "  - nginx/ssl/evolution.cbi1.org.key (private key)"
-echo "  - nginx/ssl/evolution.cbi1.org.crt (certificate)"
-```
-
-5. Script de instalação (setup-evolution.sh)
-
-```bash
-#!/bin/bash
-
-echo "=== Configurando Evolution API para evolution.cbi1.org ==="
-
-# Generate SSL certificate
-echo "Gerando certificado SSL..."
-chmod +x generate-ssl.sh
-./generate-ssl.sh
-
-# Create directory structure
-echo "Criando estrutura de diretórios..."
-mkdir -p nginx/{conf.d,ssl,logs} uploads
-
-# Create nginx configuration
-echo "Criando configuração do Nginx..."
-cat > nginx/conf.d/evolution.conf << 'EOL'
-[INSIRA AQUI O CONTEÚDO DO NGINX ACIMA]
-EOL
-
-# Create .env file
-echo "Criando arquivo .env..."
-cat > .env << 'EOL'
-[INSIRA AQUI O CONTEÚDO DO .ENV ACIMA]
-EOL
-
-# Add to hosts file (opcional - apenas se quiser configurar automaticamente)
-echo "Para configurar nos clientes, adicione esta linha no arquivo /etc/hosts:"
-echo "192.168.1.100   evolution.cbi1.org"
-echo ""
-echo "Substitua 192.168.1.100 pelo IP do seu servidor"
-
-echo "=== Configuração concluída ==="
-echo "Execute: docker-compose up -d"
-echo "Acesse: https://evolution.cbi1.org"
-```
-
-6. Configuração nos clientes
-
-No arquivo hosts de cada máquina cliente:
-
-```
-# Windows: C:\Windows\System32\drivers\etc\hosts
-# Linux/Mac: /etc/hosts
-
-192.168.1.100   evolution.cbi1.org
-```
-
-Importar certificado SSL (opcional mas recomendado):
-
-```bash
-# No Windows: Importar .crt no "Certificados do Computador"
-# No Linux: 
-sudo cp nginx/ssl/evolution.cbi1.org.crt /usr/local/share/ca-certificates/
-sudo update-ca-certificates
-
-# No Mac: 
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain nginx/ssl/evolution.cbi1.org.crt
-```
-
-7. Como usar
-
-1. Execute o setup:
-
-```bash
-chmod +x setup-evolution.sh generate-ssl.sh
-./setup-evolution.sh
-```
-
 1. Inicie os containers:
 
 ```bash
@@ -328,5 +227,3 @@ Vantagens desta configuração:
 3. ✅ Domínio fácil de lembrar (evolution.cbi1.org)
 4. ✅ Nginx otimizado para Evolution API
 5. ✅ Configuração completa e pronta para uso
-
-Seu QR Code agora será perfeitamente acessível em todos os dispositivos da rede local!
