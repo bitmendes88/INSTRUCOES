@@ -1,7 +1,6 @@
-Configuração para domínio local evolution.cbi1.org
+Aqui está um docker-compose completo com Redis, PostgreSQL, Chatwoot e Nginx:
 
-
-1. docker-compose.yml
+🐳 docker-compose.yml
 
 ```yaml
 version: '3.8'
@@ -9,221 +8,310 @@ version: '3.8'
 services:
   # Evolution API
   evolution-api:
-    image: atendais/whatsapp-api:latest
+    image: evolutionapi/evolution-api:latest
     container_name: evolution-api
     restart: unless-stopped
-    env_file:
-      - .env
     ports:
-      - "8081:8081"
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+      - ENABLE_INSECURE_AUTH=true
+      - API_KEY=${EVOLUTION_API_KEY}
+      - INSTANCE_KEYS=${INSTANCE_KEYS}
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379
+      - DATABASE_ENABLED=true
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - CORS_ENABLED=true
+      - CORS_ORIGIN=*
+      - STORE_MESSAGE=true
+      - STORE_MESSAGE_MEDIA=true
+      - STORE_CONTACTS=true
+      - STORE_CHATS=true
     volumes:
-      - evolution_data:/usr/src/app/instances
-      - evolution_logs:/usr/src/app/logs
-      - ./uploads:/usr/src/app/uploads
+      - evolution-instances:/evolution/instances
+      - evolution-logs:/evolution/logs
+    depends_on:
+      - redis
+      - postgres
     networks:
-      - evolution-network
-    extra_hosts:
-      - "evolution.cbi1.org:host-gateway"
+      - app-network
 
-  # Nginx com SSL
+  # Redis
+  redis:
+    image: redis:alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  # Chatwoot
+  chatwoot:
+    image: chatwoot/chatwoot:latest
+    container_name: chatwoot
+    restart: unless-stopped
+    environment:
+      - RAILS_ENV=production
+      - NODE_ENV=production
+      - FRONTEND_URL=${CHATWOOT_URL}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USERNAME=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DATABASE=${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY_BASE=${CHATWOOT_SECRET_KEY}
+      - RAILS_MAX_THREADS=5
+      - ENABLE_ACCOUNT_SIGNUP=true
+      - FORCE_SSL=false
+    volumes:
+      - chatwoot-data:/app/storage
+    depends_on:
+      - redis
+      - postgres
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
+
+  # Nginx
   nginx:
     image: nginx:alpine
-    container_name: evolution-nginx
+    container_name: nginx
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/ssl:/etc/nginx/ssl
       - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - evolution-api
+      - chatwoot
     networks:
-      - evolution-network
-    extra_hosts:
-      - "evolution.cbi1.org:host-gateway"
+      - app-network
 
 volumes:
-  evolution_data:
-    driver: local
-  evolution_logs:
-    driver: local
+  redis-data:
+  postgres-data:
+  evolution-instances:
+  evolution-logs:
+  chatwoot-data:
 
 networks:
-  evolution-network:
+  app-network:
     driver: bridge
 ```
 
-2. .env otimizado
+📝 Arquivo .env
 
 ```env
 # ========================
-# EVOLUTION API CONFIG
+# EVOLUTION API
 # ========================
+EVOLUTION_API_KEY=seu-jwt-token-super-secreto-evolution-123456
+INSTANCE_KEYS=whatsapp1:key-instance-123,whatsapp2:key-instance-456
 
-# Configurações do Servidor
-PORT=8081
-HOST=0.0.0.0
-NODE_ENV=production
+# ========================
+# POSTGRESQL
+# ========================
+POSTGRES_DB=evolution_chatwoot
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=senha-super-segura-postgres-789
 
-# URLs Críticas para QR Code
-SERVER_URL=https://evolution.cbi1.org
-INSTANCE_SERVER_HOST=https://evolution.cbi1.org
-WEBHOOK_GLOBAL_URL=https://evolution.cbi1.org/webhook
+# ========================
+# CHATWOOT
+# ========================
+CHATWOOT_URL=https://seu-dominio.com
+CHATWOOT_SECRET_KEY=chatwoot-secret-key-base-muito-longa-aqui-1234567890
 
-# Configurações de QR Code
-QRCODE_DISPLAY=true
-QRCODE_GENERATE_INTERVAL=4000
-QRCODE_LIMIT=40
-SAVE_QRCODE=true
-
-# Segurança
-JWT_SECRET=seu-jwt-super-secreto-aqui-altere-isto
-JWT_EXPIRES_IN=7d
-
-# CORS
-CORS_ORIGIN=*
-CORS_METHODS=GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS
-CORS_CREDENTIALS=true
-CORS_ALLOWED_HEADERS=Content-Type,Authorization,X-Requested-With
-
-# Webhook Events
-WEBHOOK_EVENTS=APPLICATION_STARTUP,QRCODE_UPDATED,MESSAGES_SET,MESSAGES_UPSERT,MESSAGES_UPDATE,MESSAGES_DELETE,SEND_MESSAGE,CONTACTS_SET,CONTACTS_UPDATED,CONTACTS_DELETE,PRESENCE_UPDATE,CHATS_SET,CHATS_UPDATED,CHATS_DELETE,GROUPS_UPSERT,GROUP_PARTICIPANTS_UPDATE,CONNECTION_UPDATE,CALL
-
-# Logs
-LOG_LEVEL=info
-LOG_ACTIVE=true
-
-# Cache
-CACHE_ENABLED=true
-CACHE_TIME=300
-
-# Rate Limit
-RATE_LIMIT_ENABLED=true
-RATE_LIMIT_MAX=100
-RATE_LIMIT_WINDOW_MS=60000
-
-# Redis (Opcional - descomente se usar)
-# REDIS_URI=redis://redis:6379
-# REDIS_DB=0
-
-# Database (Opcional - descomente se usar)
-# DB_CONNECTION=postgres
-# DB_HOST=postgres
-# DB_PORT=5432
-# DB_DATABASE=evolution
-# DB_USERNAME=evolution_user
-# DB_PASSWORD=evolution_password
+# ========================
+# DOMÍNIOS E URLS
+# ========================
+DOMAIN=seu-dominio.com
+EVOLUTION_SUBDOMAIN=api
+CHATWOOT_SUBDOMAIN=chat
 ```
 
-3. Configuração do Nginx (nginx/conf.d/evolution.conf)
+🛠️ Nginx Configuration
+
+Crie o arquivo nginx/nginx.conf:
 
 ```nginx
-server {
-    listen 80;
-    server_name evolution.cbi1.org;
-    
-    # Redirect HTTP to HTTPS
-    return 301 https://$server_name$request_uri;
+events {
+    worker_connections 1024;
 }
 
-server {
-    listen 443 ssl http2;
-    server_name evolution.cbi1.org;
-
-    # SSL Configuration
-    ssl_certificate /etc/nginx/ssl/evolution.cbi1.org.crt;
-    ssl_certificate_key /etc/nginx/ssl/evolution.cbi1.org.key;
-    
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-
-    # Security headers
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains";
-
-    # CORS headers
-    add_header 'Access-Control-Allow-Origin' '*' always;
-    add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
-    add_header 'Access-Control-Allow-Headers' 'Authorization,Content-Type' always;
-    add_header 'Access-Control-Allow-Credentials' 'true' always;
-
-    # Handle preflight requests
-    if ($request_method = 'OPTIONS') {
-        return 204;
+http {
+    upstream evolution-api {
+        server evolution-api:8080;
     }
 
-    # Proxy settings for Evolution API
-    location / {
-        proxy_pass http://evolution-api:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Timeout settings
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-        send_timeout 300s;
+    upstream chatwoot {
+        server chatwoot:3000;
     }
 
-    # Serve uploaded files (QR codes)
-    location /uploads/ {
-        alias /usr/src/app/uploads/;
-        expires 1h;
-        add_header Cache-Control "public";
+    server {
+        listen 80;
+        server_name api.seu-dominio.com chat.seu-dominio.com;
+
+        # Redirect HTTP to HTTPS
+        return 301 https://$server_name$request_uri;
     }
 
-    # Health check endpoint
-    location /health {
-        proxy_pass http://evolution-api:8081/health;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+    server {
+        listen 443 ssl http2;
+        server_name api.seu-dominio.com;
+
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+        location / {
+            proxy_pass http://evolution-api;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # WebSocket support
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
     }
 
-    # Access and error logs
-    access_log /var/log/nginx/evolution_access.log;
-    error_log /var/log/nginx/evolution_error.log;
+    server {
+        listen 443 ssl http2;
+        server_name chat.seu-dominio.com;
+
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+        location / {
+            proxy_pass http://chatwoot;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Chatwoot specific headers
+            proxy_set_header X-Forwarded-Host $host;
+        }
+
+        # WebSocket for Action Cable
+        location /cable {
+            proxy_pass http://chatwoot;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host $host;
+        }
+    }
 }
 ```
 
-1. Inicie os containers:
+📋 Arquivo de Inicialização do PostgreSQL
+
+Crie postgres/init.sql:
+
+```sql
+-- Criar database para Evolution API
+CREATE DATABASE evolution_db;
+
+-- Criar database para Chatwoot (já é criado automaticamente, mas podemos configurar)
+CREATE DATABASE chatwoot_production;
+
+-- Criar usuário específico se necessário
+CREATE USER evolution_user WITH PASSWORD 'evolution_password';
+GRANT ALL PRIVILEGES ON DATABASE evolution_db TO evolution_user;
+
+CREATE USER chatwoot_user WITH PASSWORD 'chatwoot_password';
+GRANT ALL PRIVILEGES ON DATABASE chatwoot_production TO chatwoot_user;
+```
+
+🚀 Script de Deploy
+
+Crie deploy.sh:
 
 ```bash
+#!/bin/bash
+
+# Criar diretórios necessários
+mkdir -p nginx/ssl nginx/logs postgres
+
+# Gerar SSL self-signed (para desenvolvimento)
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout nginx/ssl/key.pem \
+  -out nginx/ssl/cert.pem \
+  -subj "/CN=localhost"
+
+# Substituir domínios no nginx.conf
+sed -i "s/seu-dominio.com/${DOMAIN:-localhost}/g" nginx/nginx.conf
+sed -i "s/api.seu-dominio.com/${EVOLUTION_SUBDOMAIN:-api}.${DOMAIN:-localhost}/g" nginx/nginx.conf
+sed -i "s/chat.seu-dominio.com/${CHATWOOT_SUBDOMAIN:-chat}.${DOMAIN:-localhost}/g" nginx/nginx.conf
+
+# Iniciar os containers
 docker-compose up -d
+
+echo "✅ Deploy realizado com sucesso!"
+echo "🌐 Evolution API: https://${EVOLUTION_SUBDOMAIN:-api}.${DOMAIN:-localhost}"
+echo "💬 Chatwoot: https://${CHATWOOT_SUBDOMAIN:-chat}.${DOMAIN:-localhost}"
+echo "📊 PostgreSQL: localhost:5432"
 ```
 
-1. Acesse a API:
-
-```
-https://evolution.cbi1.org
-```
-
-1. Crie uma instância:
+🔧 Comandos Úteis
 
 ```bash
-curl -X POST https://evolution.cbi1.org/instance/create \
-  -H "Content-Type: application/json" \
-  -d '{"instanceName": "minha-instancia", "qrcode": true}'
+# Dar permissão ao script
+chmod +x deploy.sh
+
+# Executar deploy
+./deploy.sh
+
+# Ver logs
+docker-compose logs -f
+
+# Parar tudo
+docker-compose down
+
+# Backup dos dados
+docker-compose exec postgres pg_dump -U admin evolution_chatwoot > backup.sql
 ```
 
-1. Acesse o QR Code:
+⚙️ Configuração Pós-Deploy
 
-```
-https://evolution.cbi1.org/instance/connect/minha-instancia
-```
+1. Configurar Chatwoot
 
-Vantagens desta configuração:
+Acesse https://chat.seu-dominio.com e complete o setup inicial.
 
-1. ✅ SSL funcionando com certificado autoassinado
-2. ✅ QR Code acessível em toda rede local
-3. ✅ Domínio fácil de lembrar (evolution.cbi1.org)
-4. ✅ Nginx otimizado para Evolution API
-5. ✅ Configuração completa e pronta para uso
+2. Integrar Evolution API com Chatwoot
+
+Use a API do Chatwoot para criar canais do WhatsApp.
+
+3. Configurar SSL Real (Produção)
+
+Substitua os certificados self-signed por certificados Let's Encrypt ou de sua CA.
+
+Este setup fornece uma stack completa para WhatsApp Business com interface de atendimento via Chatwoot e proxy reverso com Nginx!
