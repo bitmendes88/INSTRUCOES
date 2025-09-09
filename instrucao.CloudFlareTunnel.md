@@ -555,3 +555,233 @@ proxy_read_timeout 600;
 5. ✅ DNS apontando para o Tunnel
 
 Qual erro específico você está vendo? Pode compartilhar os logs do Nginx ou do Cloudflare Tunnel?
+
+
+Entendi! Seu Nginx também é um container. Nesse caso, a melhor opção é configurar o Cloudflare Tunnel em um container Docker na mesma rede que seus outros containers.
+
+🐳 Configuração Recomendada com Docker
+
+1. Estrutura da Sua Rede
+
+```
+Cloudflare Tunnel (container) → Nginx (container) → Budibase (container)
+```
+
+2. Docker Compose Completo
+
+Arquivo: docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  # Cloudflare Tunnel
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml
+      - ./cloudflared/credentials.json:/etc/cloudflared/credentials.json
+    networks:
+      - app-network
+    depends_on:
+      - nginx
+
+  # Nginx como Proxy Reverso
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/sites-available:/etc/nginx/sites-available
+    networks:
+      - app-network
+    depends_on:
+      - budibase
+
+  # Budibase
+  budibase:
+    image: budibase/budibase:latest
+    container_name: budibase-app
+    restart: unless-stopped
+    environment:
+      - BUDIBASE_PUBLIC_URL=https://app.cbi1.org
+      - BUDIBASE_SERVER_URL=https://app.cbi1.org
+      - BUDIBASE_CORS_ALLOWED_ORIGINS=https://app.cbi1.org
+      - JWT_SECRET=sua-chave-secreta-muito-forte
+      - REDIS_URL=redis://redis:6379
+      - MINIO_URL=http://minio:9000
+      - PORT=10000
+    networks:
+      - app-network
+    depends_on:
+      - redis
+      - minio
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: budibase-redis
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # MinIO
+  minio:
+    image: minio/minio
+    container_name: budibase-minio
+    restart: unless-stopped
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.44.133.0/24
+```
+
+3. Configuração do Cloudflare Tunnel
+
+Arquivo: cloudflared/config.yml
+
+```yaml
+tunnel: SEU_TUNNEL_ID
+credentials-file: /etc/cloudflared/credentials.json
+logfile: /var/log/cloudflared.log
+loglevel: info
+
+ingress:
+  - hostname: app.cbi1.org
+    service: http://nginx:80  # ⚡ Nome do serviço no Docker
+    originRequest:
+      connectTimeout: 30s
+      httpHostHeader: app.cbi1.org
+      noTLSVerify: true
+
+  - service: http_status:404
+```
+
+4. Configuração do Nginx
+
+Arquivo: nginx/nginx.conf
+
+```nginx
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream budibase {
+        server budibase:10000;  # ⚡ Nome do serviço Docker
+    }
+
+    server {
+        listen 80;
+        server_name app.cbi1.org;
+
+        location / {
+            proxy_pass http://budibase;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            proxy_connect_timeout 300;
+            proxy_send_timeout 300;
+            proxy_read_timeout 300;
+        }
+
+        location /health {
+            proxy_pass http://budibase/health;
+            access_log off;
+        }
+    }
+}
+```
+
+5. Script de Inicialização
+
+Arquivo: start-app.sh
+
+```bash
+#!/bin/bash
+
+# Criar diretórios de configuração
+mkdir -p cloudflared nginx
+
+# Iniciar todos os serviços
+docker-compose down
+docker-compose up -d
+
+# Verificar status
+echo "Aguardando inicialização..."
+sleep 10
+
+echo "Status dos containers:"
+docker ps
+
+echo "Testando conectividade:"
+docker exec nginx-proxy curl -s http://budibase:10000/health || echo "Erro ao conectar Budibase"
+```
+
+6. Vantagens Desta Abordagem
+
+· ✅ Comunicação por nome de serviço: nginx:80 e budibase:10000
+· ✅ Rede isolada: Todos containers na mesma rede Docker
+· ✅ Gerenciamento único: Um único docker-compose para tudo
+· ✅ Fácil manutenção: Todos serviços gerenciados juntos
+
+7. Comandos de Verificação
+
+```bash
+# Verificar se todos containers estão na mesma rede
+docker network inspect app-network
+
+# Testar comunicação entre containers
+docker exec cloudflared-tunnel ping nginx
+docker exec nginx-proxy ping budibase
+
+# Ver logs do Cloudflare Tunnel
+docker logs cloudflared-tunnel
+
+# Ver logs do Nginx
+docker logs nginx-proxy
+
+# Ver logs do Budibase
+docker logs budibase-app
+```
+
+8. Troubleshooting
+
+Se houver problemas de conexão:
+
+```bash
+# Verificar DNS interno do Docker
+docker exec nginx-proxy cat /etc/hosts
+
+# Testar conectividade manualmente
+docker exec nginx-proxy curl -v http://budibase:10000/health
+
+# Reiniciar serviços específicos
+docker-compose restart cloudflared nginx
+```
+
+Esta configuração é ideal para seu caso porque:
+
+1. Todos serviços ficam na mesma rede Docker
+2. Comunicação por nomes de serviço (não precisa de IPs fixos)
+3. Fácil gerenciamento e escalabilidade
+4. Isolamento completo do ambiente
+
+Agora o tunnel se comunica com o Nginx usando o nome do serviço Docker (nginx:80) e o Nginx se comunica com o Budibase também pelo nome do serviço (budibase:10000).
